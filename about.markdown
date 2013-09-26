@@ -5,7 +5,7 @@ layout: page
 
 about me
 
-> Student | Linuxer | Coder
+> Student | Coder| Linuxer 
 
 github 
 
@@ -13,10 +13,11 @@ github
 
 mail 
 
-> wujiantaozhsh@gmail.com
+> wujiantaozhsh#gmail.com
 
 weibo 
 
 > [@吴建涛wu](http://weibo.com/u/1977313820)
 
-to reach me
+---
+to contact me
