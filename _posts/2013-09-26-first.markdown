@@ -1,0 +1,14 @@
+---
+title: 第一篇
+layout: post
+guid: urn:uuid:6a13c958-5347-4563-b269-750c2c9bd3c3
+tags:
+  -life 
+---
+
+![life](/media/files/2013/09/26/first.jpg)
+
+博客的搭建，已见雏形。学习中再一步一步改进和完善。
+
+---
+memo
