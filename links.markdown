@@ -3,7 +3,7 @@ title: links
 layout: page
 ---
 
-[Zhaofei](http://xuelangZF.github.io)  
-[Zhangjie](http://zhjie231.github.io)  
+[zhaofei](http://xuelangZF.github.io)  
+[zhangjie](http://zhjie231.github.io)  
 
 -----
