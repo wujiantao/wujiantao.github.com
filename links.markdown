@@ -3,7 +3,7 @@ title: links
 layout: page
 ---
 
-[zhaofei](xuelangZF.github.io)  
-[zhangjie](zhjie231.github.io)  
+[Zhaofei](http://xuelangZF.github.io)  
+[Zhangjie](http://zhjie231.github.io)  
 
 *# sort*
