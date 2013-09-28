@@ -44,6 +44,15 @@ hr {
     content: '--- ✄ ---';
     text-align: center; }
 
+.blank {
+	margin: 2em 0;
+	color:#FFF;}
+	.blank:after {
+		display: block;
+		content: '          ';
+		text-align: center;}
+
+
 a, header #header h1 a, article .title a, article .meta .tags a {
   text-decoration: none;
   color: #bb2222; }
