@@ -29,7 +29,7 @@ layout: default
   </ul>
   <div class="divider"></div>
   <ul class="listing main-listing">
-    <li class="listing-seperator">Happend earlier this year</i>
+    <li class="listing-seperator">Recent Post</i>
   {% capture year %}{{ site.time | date:"%Y"}}{% endcapture %}
   {% for post in site.posts offset:1 %}
     {% capture y %}{{ post.date | date:"%Y"}}{% endcapture %}
@@ -41,6 +41,6 @@ layout: default
       <a href="{{ post.url }}" title="{{ post.title }}">{{ post.title }}</a>
     </li>
   {% endfor %}
-    <li class="listing-seperator"><a href="/archive.html">Long long ago</a></li>
+    <!-- <li class="listing-seperator"><a href="/archive.html">Long long ago</a></li> -->
   </ul>
 </div>
