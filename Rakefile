@@ -51,6 +51,7 @@ def new_post(title)
 ---
 title: #{title}
 layout: post
+key: #{uuid}
 tags:
   - 
 ---
