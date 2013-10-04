@@ -103,7 +103,7 @@ tags:
 #####引用#####
 
 [geeksforgeeks上关于bit algorithm的介绍](http://www.geeksforgeeks.org/fundamentals-of-algorithms/)<br>
-[百度百科关于位运算的介绍(别鄙视，这个词条确实比维基详细）](http://baike.baidu.com/view/379209.htm)
+[百度百科关于位运算的介绍(这个词条确实比维基详细）](http://baike.baidu.com/view/379209.htm)
 
 <div class="blank"></div>
 ####未完待续####
