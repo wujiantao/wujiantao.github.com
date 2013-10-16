@@ -3,8 +3,7 @@ title: 欧拉函数推导
 layout: post
 key: 4bd7708f-d61c-4f49-a93d-b4a35bb0ad9c
 tags:
-  - mathematics
-  - algorithm
+  -mathematics
 ---
 
 
