@@ -1,0 +1,67 @@
+---
+title: 欧几里得算法
+layout: post
+key: 7fe44b96-1cbc-4ef7-84bc-dac52d7a8985
+tags:
+  - 
+---
+
+
+出于记笔记的目的，这里记述一下欧几里得算法，主要针对扩展的欧几里得算法，即对于给定的两个数 a 和 b ，求出 gcd (a , b) 的同时求解出 m 和 n，使得 gcd (a, b) = m * a + n * b;具体的实现分两种形式，第一种是递归。另一种是迭代。但不管是递归还是迭代，其求解的重点其实都在 m 和 n 上，因为 gcd (a, b)的求解已是十分的简单明了。
+
+####递归形式####
+
+递归形式的欧几里得算法，其实现思想就是从下往上进行更新 m 和 n 的值，使得最后得到的值就是满足 gcd (a, b) = m * a + n * b 的m 和 n。对于给定 a 和 b。应用辗转相除法我们能得到一串等式，a = p<sub>0</sub> * b + r<sub>0</sub>, b = p<sub>1</sub> * r<sub>0</sub> + r<sub>1</sub> , ... , r<sub>k-2</sub> = p<sub>k</sub> * r<sub>k-1</sub> + r<sub>k</sub> 。这里递归的思想就是，假设对于 r<sub>i</sub> = p<sub>i+1</sub> * r<sub>i+1</sub> + r<sub>i+2</sub> 我们能找出 gcd (a, b) = m<sub>i</sub> * r<sub>i</sub> + n<sub>i</sub> * r<sub>i+1</sub> 。 那么我们能根据 m<sub>i</sub> 和 n<sub>i</sub> 的值求出 满足 gcd (a, b) = m<sub>i-1</sub> * r<sub>i-1</sub> + n<sub>i-1</sub> * r<sub>i</sub> 的 m<sub>i-1</sub> 和 n<sub>i-1</sub>，这样一直往上递归我们就能得出满足 gcd (a, b) = m * a + n * b 的 m 和 n 。
+
+对于递归的递归基，我们判断当 r<sub>k</sub> = 0 时递归终止，此时 r<sub>k-2</sub> = p<sub>k</sub> * r<sub>k-1</sub> + r<sub>k</sub> , r<sub>k-1</sub> = p<sub>k+1</sub> * r<sub>k</sub> + r<sub>k+1</sub>。对于最后一个式子 p<sub>k+1</sub> 可以为任何数，因为 r<sub>k</sub>为 0, 同时 r<sub>k+1</sub> = r<sub>k-1</sub> gcd (a, b) = r<sub>k-1</sub> 。对于最后一个式子我们找到 m<sub>k-1</sub> = 1, n<sub>k-1</sub> = 0，这里 n<sub>k-1</sub>可以为任何数，简单起见，设为 0 。使得 m<sub>k-1</sub> 和 n<sub>k-1</sub> 满足等式 gcd (a, b) = m<sub>k-1</sub> * r<sub>k-1</sub> + n<sub>k-1</sub> * r<sub>k</sub>。递归进行到这一步就回溯，可以最终求得 m 和 n 的值。简要的代码如下。
+
+	/*程序返回 gcd (a, b)。m 和 n 满足 gcd (a, b) = m * a + n * b 。*/
+	int euclidRecursive (int a, int b, int &m, int &n)
+	{
+		if (b == 0) {
+			m = 1;
+			n = 0;
+			return a;
+		}
+		int r = euclidRecursive (b, a % b, m, n);
+		int t = n;
+		n = m - a / b * n;
+		m = t;
+		return r;
+	}
+
+这里结合程序讲一讲如何对 m 和 n 的值进行更新。假设已经递归求解了 euclidRecursive (b, a % b, m, n) 那么根据程序的功能，此时应有gcd (a, b) = m * b + n * (a % b)。进行变换得到 gcd (a, b) = m * b + (a - a/ b * b) * n (注意，这里的除法都是整除，和 c/c++ 中的除法一样) ，即 gcd (a, b) = a * n + (m - a / b * n) * b，所以只需将 m 和 n 的值分别更新为 n 和 m - a / b * n 即可。
+
+
+####迭代形式####
+
+递归形式的实现，其实相对比较简单，迭代形式因为需要的变量太多，比递归形式稍微复杂一点。并且递归和迭代的思想不一样，递归是求得 gcd (a, b)之后，不断的根据 a 和 b 的值调整 m 和 n 的值。等式 gcd (a, b) = m * a + n * b 的左边的值一直保持不变，而迭代形式中等式的左值是不断变换的。直到最后求得 gcd (a, b)之后，就也求得了 m 和 n 的值。
+
+同样对于给定的两个数 a 和 b 应用辗转相除法可以得到一串等式 a = p<sub>0</sub> * b + r<sub>0,</sub> b = p<sub>1</sub> * r<sub>0</sub> + r<sub>1</sub> , ... , r,,k-2 = p<sub>k</sub> * r<sub>k-1</sub> + r<sub>k</sub> 。 迭代的思想就是假设我们知道 r<sub>i</sub> = m<sub>i</sub> * a + n<sub>i</sub> * b 和 r<sub>i+1</sub> = m<sub>i+1</sub> * a + n<sub>i+1</sub> * b ，我们能得出 m<sub>i+2</sub> 和 n<sub>i+2</sub> 使得满足等式 r<sub>i+2</sub> = m<sub>i+2</sub> * a + n<sub>i+2</sub> * b 。当 r<sub>k</sub> = 0 时，通过迭代，能得到等式 ， r<sub>k-1</sub> = m<sub>k-1</sub> * a + n<sub>k-1</sub> * b 和等式 r<sub>k</sub> = m<sub>k</sub> * a + n<sub>k</sub> * b ，显然 gcd (a, b) = r<sub>k-1</sub> ，同时 gcd (a, b) = r<sub>k-1</sub> = m<sub>k-1</sub> * a + n<sub>k-1</sub> * b 。则 m<sub>k-1</sub> 和 n<sub>k-1</sub>即为满足条件的 m 和 n 。
+
+所以当 r<sub>k</sub> = 0 时，迭代过程终止，这里除了找终止条件外，还需要找初始条件。对于最初的两个等式 a = p<sub>0</sub> * b + r<sub>0</sub> 和 b = p<sub>1</sub> * r<sub>0</sub> + r<sub>1</sub> 。我们可以直接找两组特值，使得满足等式 a = m<sub>0</sub> * a + n<sub>0</sub> * b , b = m<sub>1</sub> * a + n<sub>1</sub> * b。这里简单起见令 m<sub>0</sub> = 1, n<sub>0</sub> = 0 m<sub>1</sub> = 0, n<sub>1</sub> = 1 。而事实上这里可以找到无数种满足条件的初值，间要的代码如下。
+
+	/*和递归的功能类似，返回值为 gcd (a, b) , m0 和 n0满足 gcd (a, b) = m0 * a + n0 * b .
+	  另外不是我想设置这么多变量，而是实在是必须得设这么多,变量多确实相当影响阅读性。*/
+	int euclidIterative (int a, int b, int &m0, int &n0)
+	{
+		int p0, p1, m1, n1;
+		p0 = a, m0 = 1, n0 = 0;
+		p1 = b, m1 = 0, n1 = 1;
+
+		while (p1 != 0) {
+			int tm = m1, tn = n1, r = p0 % p1;
+			m1 = m0 - p0 / p1 * m1;
+			n1 = n0 - p0 / p1 * n1;
+			m0 = tm, n0 = tn;
+			p0 = p1, p1 = r;
+		}
+		return p0;
+	}
+
+结合上面的代码简要说说迭代的原理，思想就是当前有两个等式 p<sub>0</sub> = m<sub>0</sub> * a + n<sub>0</sub> * b 和 p<sub>1</sub> = m<sub>1</sub> * a + n<sub>1</sub> * b。注意 p<sub>0</sub> 和 p<sub>1</sub>对应的是上面辗转相除法得到的一串等式的两个相邻等式的左值。其中 p<sub>0</sub> 和 p<sub>1</sub> 的初值分别对应 a 和 b 。而 m<sub>0</sub> , n<sub>0</sub> , m<sub>1</sub> , n<sub>1</sub> 的初值选取前面已经进行了说明。
+
+我们希望得到满足等式 r = m * a + n * b (r = q<sub>0</sub> % q<sub>1</sub>) 中的 m 和 n 值，将前面的等式变换得到 p<sub>0</sub> - p<sub>0</sub> / p<sub>1</sub> * p<sub>1</sub> = m * a + n * b。而根据之前的两个等式又有 p<sub>0</sub> - p<sub>0</sub> / p<sub>1</sub> * p<sub>1</sub> = m<sub>0</sub> * a + n<sub>0</sub> * b - p<sub>0</sub> / p<sub>1</sub> * (m<sub>1</sub> * a + n<sub>1</sub> * b) 对等式进行变换得到 p<sub>0</sub> - p<sub>0</sub> / p<sub>1</sub> * p<sub>1</sub> = (m<sub>0</sub> - p<sub>0</sub> / p<sub>1</sub> * m<sub>1</sub>) * a + (n<sub>0</sub> - p<sub>0</sub> / p<sub>1</sub> * n<sub>1</sub>) * b 。所以可以将 p<sub>1</sub> 更新为 p<sub>0</sub> % p<sub>1</sub> 。将 m<sub>1</sub> 更新为 (m<sub>0</sub> - p<sub>0</sub> / p<sub>1</sub> * m<sub>1</sub>) 将 n<sub>1</sub> 更新为 (n<sub>0</sub> - p<sub>0</sub> / p<sub>1</sub> * n<sub>1</sub>) 。同时将 p<sub>0</sub> 更新为原先 p<sub>1</sub> 的值，m<sub>0</sub> 更新为原先 m<sub>1</sub> 的值， n<sub>0</sub> 更新为原来 n<sub>1</sub>的值。这样不断迭代，直到 p<sub>1</sub> = 0 。则 p<sub>0</sub>即为所求。
+
+####说明####
+对于给定的两个数 a 和 b ，以上两种方法都能求得 m 和 n 的值使得 gcd (a, b) = m * a + n * b。由于满足等式 gcd (a, b) = m * a + n * b的 m 和 n有无数对，比如 m 和 n满足条件，那么 m - k * b 和 n + k * a 也是满足条件的，这里 k 可以为任意整数。要得到不同的 m 和 n 可以修改递归版本中终止条件的 m 和 n 的值。同时可以更改迭代版本中初始条件中 m 和 n 的值。
