@@ -3,7 +3,7 @@ title: 欧几里得算法
 layout: post
 key: 7fe44b96-1cbc-4ef7-84bc-dac52d7a8985
 tags:
-  - 
+  -mathematics
 ---
 
 
