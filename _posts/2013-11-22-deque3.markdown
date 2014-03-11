@@ -1,0 +1,210 @@
+---
+title: STL 的 deque 分析（三）
+layout: post
+key: 0ed3c767-f772-468a-a48e-093ffc24c7ee
+tags:
+  -deque 
+  -STL 
+---
+
+####类模板 deque####
+
+deque 是一个类模板，继承自模板类 \_Deque\_base<\_Tp, \_Alloc> ， \_Tp 和 \_Alloc 是 deque 的模板形参。 deque 对 \_Deque\_base<\_Tp, \_Alloc> 的继承是保护继承，所以基类中的所有成员对用户而言都是不可见的，而只能为 deque 所使用。
+
+<div class="cut"></div>
+deque 中定义了大量成员类型，列举其中几个进行说明， \_Base 是基类类型的一个类型别名，而 iterator 中也是直接使用了基类中的迭代器类型。const\_iterator 也是直接使用基类中的常量迭代器。reverse\_iterator 是用当前类的迭代器实例化一个反向迭代器。\_Map\_pointer 展开其类型就为 \_Tp\*\*
+
+	  typedef _Deque_base<_Tp, _Alloc> _Base;
+	  typedef typename _Base::iterator       iterator;
+	  typedef typename _Base::const_iterator const_iterator;
+	  typedef reverse_iterator<iterator> reverse_iterator;
+	  typedef pointer* _Map_pointer;
+
+<div class="cut"></div>
+begin 函数和 end 函数分别返回 deque 中指向第一个元素的迭代器 和 指向 deque 的结束标记的迭代器，结束标记不指向 deque 中的具体元素，它指向 deque 中最后一个元素所在位置的下一个位置。
+
+	  iterator begin() { return _M_start; }
+	  iterator end() { return _M_finish; }
+
+<div class="cut"></div>
+rbegin 函数和 rend 函数返回值都为一个 reverse\_iterator 类型的实例。其中 rbegin 返回的是指向最后一个元素的一个 reverse\_iterator 。 而 rend 返回的是指向第一个元素之前的那个元素的 reverse\_iterator 。reverse\_iterator 在 stl\_iterator.h 中进行定义的，在其构造函数中会用传递进来的迭代器构造一个反向迭代器，且构造得到的反向迭代器指向的元素位置为原先迭代器所指向位置的前一个位置。
+
+	  reverse_iterator rbegin() { return reverse_iterator(_M_finish); }
+	  reverse_iterator rend() { return reverse_iterator(_M_start); }
+
+<div class="cut"></div>
+operator[] 用来索引 \_M\_start 之后的第 \_\_n 个元素。这里 \_\_n 在函数体中会由一个无符号数转化为一个有符号数，转化为有符号数之后 \_\_n 可能为负数，但其实 \_M\_start 是允许用赋值来索引的，不过 M\_start 指向的已经是 deque 的第一个元素，如果用负值来索引，得到的值不是 deque 中的元素，而且用负值来进行索引也会造成越界。 
+
+	  reference operator[](size_type __n)
+	    { return _M_start[difference_type(__n)]; }
+
+<div class="cut"></div>
+operator[] 中没有对索引值是否越界的检测，而 at 中有对索引值是否越界的检测，如果检测越界则抛出一个异常。检测由函数 \_M\_range\_check 来进行，如果索引值合法，则调用 operator[] 来得到索引值指示的元素。
+
+	  void _M_range_check(size_type __n) const {
+	    if (__n >= this->size())
+	      __stl_throw_range_error("deque");
+	  }
+
+	  reference at(size_type __n)
+	    { _M_range_check(__n); return (*this)[__n]; }
+	    
+<div class="cut"></div>
+size 函数返回 deque 中的元素个数，这个直接调用 \_M\_finish - \_M\_start 即可。因为在 \_Deque\_iterator 中重载了 operator- 函数，它实现的功能就是计算两个迭代器之间的元素个数。而 \_M\_finish 和 \_M\_start 都是 \_Deque\_iterator 的实例。
+
+	  size_type size() const { return _M_finish - _M_start; }
+
+<div class="cut"></div>
+front 函数返回第一个元素，, back 函数返回最后一个元素。front, back 函数和 begin, end 函数的区别在于一个返回的是实际的元素，而另一个返回的是迭代器，且back 和 end 还有一点区别， back 返回最后一个元素，而 end 返回的是指向结束标记的迭代器，它实际上指向最后一个元素所在位置的下一个位置。
+
+	  const_reference front() const { return *_M_start; }
+	  const_reference back() const {
+	    const_iterator __tmp = _M_finish;
+	    --__tmp;
+	    return *__tmp;
+	  }
+
+<div class="cut"></div>
+deque 的构造函数一共有五个。第一个构造函数是通过一个 allocator\_type 类型的变量 \_\_a 来实例化 deque 。 其中 \_\_a 用来初始化 deque 的基类 \_Base 。构造函数的函数体为空。
+
+	  explicit deque(const allocator_type& __a = allocator_type()) 
+	    : _Base(__a, 0) {}
+
+<div class="cut"></div>
+第二个是拷贝构造函数，用传递进来的 deque 实例的内容来初始化当前对象的内容。 首先调用基类的构造函数，基类构造函数中会为 \_M\_map 分配内存空间，并分配足够容纳 \_\_x 中所有元素的一些内存块，这些内存块的首地址存放在 \_M\_map 的对应元素中，使得通过 \_M\_map 能够索引到这些内存块。然后调用 uninitialized\_copy 将 \_\_x 中的内容拷贝到当前 deque 的对应位置。
+
+	  deque(const deque& __x) : _Base(__x.get_allocator(), __x.size()) 
+	    { uninitialized_copy(__x.begin(), __x.end(), _M_start); }
+
+<div class="cut"></div>
+第三个构造函数是为 deque 初始化多个重复的元素。先调用基类的构造函数分配足够的内存空间，然后调用 \_M\_fill\_initialize 为 deque 构造 \_\_n 个值为 \_\_value 的元素，调用 \_M\_fill\_initialize 时只是将 \_\_value 传递给了函数，但并没有将 \_\_n 传递进去，函数之所以知道需要构造 \_\_n 个元素，是因为在基类构造函数中已经对 \_M\_start 和 \_M\_finish 进行了初始化，两个迭代器之间一共可以容纳 \_\_n 个元素，因此只需对这两个迭代器之间的所有位置上构造值为 \_\_value 的元素即可。
+
+	  deque(size_type __n, const value_type& __value,
+		const allocator_type& __a = allocator_type()) : _Base(__a, __n)
+	    { _M_fill_initialize(__value); }
+
+<div class="cut"></div>
+第四个构造函数也是为 deque 初始化多个重复元素。不同的是上面的构造函数指定了元素值，但当前的构造函数没有指定元素值，而使用默认值进行初始化 (如果元素不能生成默认值，会出现错误) 。
+
+	  explicit deque(size_type __n) : _Base(allocator_type(), __n)
+	    { _M_fill_initialize(value_type()); }
+
+<div class="cut"></div>
+第五个构造函数是一个函数模板，根据模板形参的不同其内部会分别调用 \_M\_initialize\_dispatch 的两种不同的实现，这种实现策略，在之前已经出现过很多次。具体的方法就是判断传进来的模板实参是否是一个整型类型。如果模板形参是整型，函数内部声明的类型别名 \_Integral 会是 \_\_true\_type 的类型别名。否则会是 \_\_false\_type 的类型别名。根据 \_Intergral 的类型的不同会调用函数模板 \_M\_initialize\_dispatch 的不同实现。
+
+	  template <class _InputIterator>
+	  deque(_InputIterator __first, _InputIterator __last,
+		const allocator_type& __a = allocator_type()) : _Base(__a) {
+	    typedef typename _Is_integer<_InputIterator>::_Integral _Integral;
+	    _M_initialize_dispatch(__first, __last, _Integral());
+	  }
+
+<div class="cut"></div>
+\_M\_fill\_initialize 函数实现的功能是为 \_M\_start 和 \_M\_finish (\_M\_start 和 \_M\_finish 继承自基类 \_Deque\_base) 之间的内存空间构造元素。以 \_M\_start.\_M\_node 到 \_M\_finish.\_M\_node - 1 之间的元素为首地址的内存块中元素都是满的(即元素个数应该为 \_S\_buffer\_size() 个，\_S\_buffer\_size() 为当前类的一个成员函数，其函数体直接调用全局的 \_\_deque\_buf\_size 函数)，而 以 \_M\_finish.\_M\_node 指向的元素为首地址的内存块是不满的。该内存块中的元素应该在 \_M\_finish.\_M\_first 到 \_M\_finish.\_M\_cur 之间，其中 \_M\_finish.\_M\_cur 是结束标记，该位置上不构造元素。
+
+	template <class _Tp, class _Alloc>
+	void deque<_Tp,_Alloc>::_M_fill_initialize(const value_type& __value) {
+	  _Map_pointer __cur;
+	  __STL_TRY {
+	    for (__cur = _M_start._M_node; __cur < _M_finish._M_node; ++__cur)
+	      uninitialized_fill(*__cur, *__cur + _S_buffer_size(), __value);
+	    uninitialized_fill(_M_finish._M_first, _M_finish._M_cur, __value);
+	  }
+	  __STL_UNWIND(destroy(_M_start, iterator(*__cur, __cur)));
+	}
+
+<div class="cut"></div>
+\_M\_initialize\_dispatch 函数模板为 deque 初始化 \_\_n 个值为 \_\_x 的元素。函数会将前两个形参认为是整型类型，首先调用基类的成员函数 \_M\_initialize\_map 来分配足够的内存空间，然后在分配的空间上为 deque 构造值为 \_\_x 的元素。
+
+	  template <class _Integer>
+	  void _M_initialize_dispatch(_Integer __n, _Integer __x, __true_type) {
+	    _M_initialize_map(__n);
+	    _M_fill_initialize(__x);
+	  }
+
+<div class="cut"></div>
+\_M\_initialize\_dispatch 函数模板用 \_\_first 到 \_\_last 之间的内容来初始化 deque 。使得初始化后 deque 中的元素就为 \_\_first 到 \_\_last 中的元素，函数通过调用 \_M\_range\_initialize 函数进行实现。
+
+	  template <class _InputIter>
+	  void _M_initialize_dispatch(_InputIter __first, _InputIter __last,
+				      __false_type) {
+	    _M_range_initialize(__first, __last, __ITERATOR_CATEGORY(__first));
+	  }
+
+<div class="cut"></div>
+\_M\_range\_initialize 函数模板用 \_\_first 到 \_\_last 之间的内容初始化 deque。根据第三个形参类型的不同，共有两种不同的定义，当第三个形参类型为 input\_iterator\_tag 时，使用如下定义。这个定义中首先调用基类的 \_M\_initialize\_map 分配空间和设置 \_M\_start 、 \_M\_finish 的值，因为传递的实参为 0 。 \_M\_initialize\_map 中会为 \_M\_map 分配 \_S\_initialize\_map\_size (\_S\_initialize\_map\_size 是基类中定义的一个枚举值，其值为 8) 个元素，然后分配一个内存块，并将该内存块的首地址存放在 \_M\_map 的某个元素中，并且 \_M\_start 和 \_M\_finish 会被设置在同一位置，表示当前 deque 是空的。接着通过一个 for 循环，循环中调用 push\_back 将 first 和 last 之间的元素插入到 deque 中。
+
+	template <class _Tp, class _Alloc> template <class _InputIterator>
+	void deque<_Tp,_Alloc>::_M_range_initialize(_InputIterator __first,
+						    _InputIterator __last,
+						    input_iterator_tag)
+	{
+	  _M_initialize_map(0);
+	  __STL_TRY {
+	    for ( ; __first != __last; ++__first)
+	      push_back(*__first);
+	  }
+	  __STL_UNWIND(clear());
+	}
+	
+<div class="cut"></div>
+\_M\_range\_initialize 函数模板用 \_\_first 到 \_\_last 之间的内容来初始化当前 deque 。在 \_M\_range\_initialize 的第二个定义中其第三个形参的类型为 forward\_iterator\_tag(如果实参为 \_\_forward 的派生类也会调用这个定义)。 函数中首先通过 distance 函数计算出 first 和 last 之间的元素个数 \_\_n，然后调用基类的 \_M\_initialize\_map 来为 deque 分配足够容纳这 \_\_n 个元素的内存空间，\_M\_initialize\_map 函数中会一并设置 \_M\_start 和 \_M\_finish 的值。对于以 \_M\_start.\_M\_node 与 \_M\_finish.\_M\_node - 1 之间的元素为首地址的内存块，每一个内存块上的元素都应该是满的，都应该分配 \_S\_buffer\_size() 个元素。其中 advance 是将迭代器向后移动指定数目个位置。对于以 \_M\_finish.\_M\_node 指向的元素为首地址的内存块，其上面的元素是不满的。通过调用 uninitialized\_copy 将剩下的元素复制到这一列上。
+
+	template <class _Tp, class _Alloc> template <class _ForwardIterator>
+	void deque<_Tp,_Alloc>::_M_range_initialize(_ForwardIterator __first,
+						    _ForwardIterator __last,
+						    forward_iterator_tag)
+	{
+	  size_type __n = 0;
+	  distance(__first, __last, __n);
+	  _M_initialize_map(__n);
+
+	  _Map_pointer __cur_node;
+	  __STL_TRY {
+	    for (__cur_node = _M_start._M_node; 
+		 __cur_node < _M_finish._M_node; 
+		 ++__cur_node) {
+	      _ForwardIterator __mid = __first;
+	      advance(__mid, _S_buffer_size());
+	      uninitialized_copy(__first, __mid, *__cur_node);
+	      __first = __mid;
+	    }
+	    uninitialized_copy(__first, __last, _M_finish._M_first);
+	  }
+	  __STL_UNWIND(destroy(_M_start, iterator(*__cur_node, __cur_node)));
+	}
+
+<div class="cut"></div>
+deque 的析构函数用来销毁当前 deque 中构造的对象。因为派生类的析构函数会比基类的析构函数先调用，deque 中的析构函数销毁对象之后，会调用基类的析构函数来释放内存空间。
+
+	  ~deque() { destroy(_M_start, _M_finish); }
+
+<div class="cut"></div>
+operator= 是将 deque 的一个实例赋值给当前 deque ，通常赋值和初始化的一个区别就是赋值时对象中可能已经有了元素，而初始化时对象中是没有元素的。
+
+如果当前对象的元素个数不少于传递进来的对象 \_\_x 的元素个数，则复制了 \_\_x 中的元素后还要删除多余的元素 函数首先调用 copy 函数将 \_\_x 中的元素复制到当前对象，其中 \_\_x 中的第一个元素复制到 \_M\_start 指示的位置，其他元素依次复制。 copy 函数会返回指向已复制的最后一个元素所在位置的下一个位置的迭代器，所以程序直接将 copy 函数的返回值作为 erase 函数的第一个实参，将 \_M\_finish 作为第二个实参来调用 erase 函数将多余的元素删除。
+
+如果当前对象的元素个数比 \_\_x 中的元素个数要少，则将 \_\_x 中的前 size() 个元素复制到当前对象中，再将 \_\_x 中剩余的元素调用 insert 插入到当前对象的尾部。
+
+	  deque& operator= (const deque& __x) {
+	    const size_type __len = size();
+	    if (&__x != this) {
+	      if (__len >= __x.size())
+		erase(copy(__x.begin(), __x.end(), _M_start), _M_finish);
+	      else {
+		const_iterator __mid = __x.begin() + difference_type(__len);
+		copy(__x.begin(), __mid, _M_start);
+		insert(_M_finish, __mid, __x.end());
+	      }
+	    }
+	    return *this;
+	  }        
+
+<div class="cut"></div>
+
+[STL 的 deque 分析（一）](../22/deque1.html)</br>
+[STL 的 deque 分析（二）](../22/deque2.html)</br>
+[STL 的 deque 分析（三）](../22/deque3.html)</br>
+[STL 的 deque 分析（四）](../22/deque4.html)</br>
+[STL 的 deque 分析（五）](../22/deque5.html)</br>
+[STL 的 deque 分析（六）](../22/deque6.html)</br>

@@ -1,5 +1,5 @@
 ---
-title: KMP算法我之见
+title: KMP算法
 layout: post
 tags:
   -algorithm

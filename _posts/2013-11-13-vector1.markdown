@@ -1,0 +1,195 @@
+---
+title: STL 的 vector 分析（一）
+layout: post
+key: 104c1cab-e6ec-49e8-b926-73142aea6dec
+tags:
+  -vector 
+  -STL 
+---
+####类模板\_Vector\_alloc\_base####
+
+stl\_vector.h 定义了一个基类 \_Vector\_alloc\_base 用于在 vector 中进行内存分配。\_Vector\_alloc\_base 中设定了三个模板形参，\_Allocator 为内存分配器(可以是 stl\_alloc.h 中定义的内存分配器，也可以是自定义的内存分配器)，\_Tp 指明了分配内存的对象的类型，\_IsStatic 指明 \_Allocator 是否是实例无关的，如果是实例无关的则使用 \_Allocator 中的 \_Alloc\_type 进行内存分配。并且 \_Vector\_alloc\_base 中不声明 \_Allocator 的实例。否则要声明一个 \_Alloc\_traits<\_Tp, \_Allocator> 类型的实例，该实例转为 \_Tp 类型的对象进行内存分配。
+
+<div class="cut"></div>
+如上所述 \_Vecotor\_alloc\_base 中默认的定义中(还有偏特化定义)声明了一个 Allocator 类型的实例。 其中 allocator\_type 为 给定用给定的 \_Allocator 来实例化 \_Alloc\_traits 后得到的实例化类中的 allocate\_type 。
+
+	  typedef typename _Alloc_traits<_Tp, _Allocator>::allocator_type allocate\_type
+	  allocator_type _M_data_allocator;
+
+
+<div class="cut"></div>
+同时在 \_Vector\_alloc\_base 中还定义了三个 protected 属性的成员变量。 vector 中会继承这三个变量，vetor 中已分配和已使用的内存由这三个变量进行限定。 \_M\_start 为内存分配的起始地址，也可以看成是 vector 中第一个元素的地址(如果 vector 中有元素)。 \_M\_finish 为 vector 中最后一个元素的结束地址，下一个新元素就应该放在 \_M\_finish 所在的位置。\_M\_end\_of\_storage 是内存的结束地址。
+
+	  _Tp* _M_start;
+	  _Tp* _M_finish;
+	  _Tp* _M_end_of_storage;
+
+<div class="cut"></div>
+\_Vector\_alloc\_base 中通过 \_M\_allocate 函数进行内存分配，通过 \_M\_deallocate 进行内存回收，\_M\_allocate 和 \_M\_deallocate 中都是通过调用 \_M\_data\_allocator 中的对应函数进行内存的回收和分配。
+
+	  _Tp* _M_allocate(size_t __n)
+	    { return _M_data_allocator.allocate(__n); }
+	  void _M_deallocate(_Tp* __p, size_t __n)
+	    { if (__p) _M_data_allocator.deallocate(__p, __n); }
+	    
+<div class="cut"></div>
+####\_Vector\_alloc\_base 的偏特化定义####
+
+\_Vector\_alloc\_base 有一个偏特化定义，当 \_is\_Static 为 true 时使用另一个定义进行实例化。在该定义中多了一个 成员类型 \_Alloc\_type，少了一个成员变量 \_M\_data\_allocator 。在该定义中内存的分配通过 \_Alloc\_type 的静态成员来进行。因此不需要声明实例。其他的定义和上面基本类似。
+
+	  _Tp* _M_allocate(size_t __n)
+	    { return _Alloc_type::allocate(__n); }
+	  void _M_deallocate(_Tp* __p, size_t __n)
+	    { _Alloc_type::deallocate(__p, __n);}
+
+<div class="cut"></div>
+####\_Vector\_base####
+
+类模板 \_Vector\_base，有两个模板形参 \_Tp 和 \_Alloc ，其中 \_Tp 表示对象的类型，而 \_Alloc 表示内存分配器的类型。\_Vector\_base 继承自 \_Vector\_alloc\_base<\_Tp, \_Alloc, _Alloc_traits<_Tp, _Alloc>::_S_instanceless> 
+
+用 \_Tp 和 \_Alloc 来实例化 \_Alloc\_traits 后得到 \_Alloc\_traits 中的 \_S\_instanceless。再用 \_Tp \_Alloc 和 \_Alloc\_traits 中的 \_S\_instanceless 来实例化 \_Vector\_alloc\_base 。当 \_Alloc 是实例无关的时 \_S\_instanceless 为 true，否则 \_S\_instanceless 为 false 。vector 默认使用的 allocator<\_Tp> 来实例化\_Alloc。得到的 \_Alloc\_traits 中的 \_S\_instanceless 为 true 。
+
+	template <class _Tp, class _Alloc>
+	struct _Vector_base
+	  : public _Vector_alloc_base<_Tp, _Alloc,
+				      _Alloc_traits<_Tp, _Alloc>::_S_instanceless>
+	{
+		......
+	};
+
+
+<div class="cut"></div>
+\_Vector\_base 中有两个构造函数，第一个构造函数只是对基类进行初始化，第二个构造函数除了初始化基类之外，还调用基类的 \_M\_allocate 函数分配了能够容纳 \_\_n 个 \_Tp 类型的对象的内存空间，并用 \_M\_start 存储空间的首地址，\_M\_end\_of\_storage 存储空间的结束地址，\_M\_finish 初始时和 \_M\_start 在同一个地址，用来指明 vector 中下一个元素要插入的位置。
+
+其中 allocate\_type 和 \_Base 都是模板类中定义的类型别名。其中 \_Base 为 \_Vector\_alloc\_base<\_Tp, \_Alloc,\_Alloc\_traits<\_Tp, \_Alloc>::\_S\_instanceless> 的类型别名; allocator\_type 为 \_Base::allocator\_type 的类型别名;
+
+	  _Vector_base(const allocator_type& __a) : _Base(__a) {}
+	  _Vector_base(size_t __n, const allocator_type& __a) : _Base(__a) {
+	    _M_start = _M_allocate(__n);
+	    _M_finish = _M_start;
+	    _M_end_of_storage = _M_start + __n;
+	  }
+
+<div class="cut"></div>
+析构函数用来释放已分配的内存空间。
+
+	  ~_Vector_base() { _M_deallocate(_M_start, _M_end_of_storage - _M_start); }
+
+<div class="cut"></div>
+####vector####
+
+vector 也是一个类模板，其中有两个模板形参，分别为 \_Tp 和 \_Alloc ，\_Tp 表示 vector 中的元素类型，而 \_Alloc 表示为其进行内存分配的内存分配器，\_Alloc 有一个缺省实参为 allocator<Tp> 。
+
+vector 继承自 \_Vector\_base<\_Tp, \_Alloc>，通过继承，其可以使用 \_Vector\_base 定义的内存分配函数来根据需要为自己进行内存分配。
+
+<div class="cut"></div>
+vector 中定义了大量的成员类型，这里列举比较关键的几个进行说明。 在 iterator\_base 中提到过 STL 将指针当成一种迭代器，通过 iterator\_traits 提取指针的 iterator\_category 得到的是 random\_access\_iterator\_tag。即 STL 中将指针当成一种 random\_access\_iterator 类型的迭代器。vector 中就是将指针作为迭代器。
+
+通过 iterator 实例化 reverse\_iterator 模板后得到的类型定义为 vector 的 reverse\_iterator 。reverse\_iterator 在 stl\_iterator.h 中进行定义。
+
+	  typedef _Tp value_type;
+	  typedef value_type* iterator;
+	  typedef const value_type* const_iterator;
+	  typedef reverse_iterator<const_iterator> const_reverse_iterator;
+	  typedef reverse_iterator<iterator> reverse_iterator;
+
+
+<div class="cut"></div>
+begin 函数和 end 函数分别返回 \_M\_start 和 \_M\_finish。
+
+	  iterator begin() { return _M_start; }
+	  iterator end() { return _M_finish; }
+
+<div class="cut"></div>
+rbegin函数 和 rend 函数都返回一个反向的迭代器，通过反向迭代器可以实现逆向迭代，如需要逆向输出是，可以选用这两个函数。 
+
+	  reverse_iterator rbegin()
+	    { return reverse_iterator(end()); }
+	  reverse_iterator rend()
+	    { return reverse_iterator(begin()); }
+
+<div class="cut"></div>
+size 函数的意义和 capacity 函数的意义是不一样的。size 函数返回的是 vector 中元素的个数，而 capacity 表示当前为 vector 分配的空间中最多能容纳多少个元素。通常 vector 中分配的空间会适当的比实际需要的空间多，以避免当更新频繁时重复的内存分配。所以 capacity 的返回值有可能会比 size 的返回值要大
+
+	  size_type size() const
+	    { return size_type(end() - begin()); }
+	  size_type capacity() const
+	    { return size_type(_M_end_of_storage - begin()); }
+
+<div class="cut"></div>
+empty 函数通过比对 begin 和 end 的返回值来查看，但在 vector 中没有定义 full 函数，程序判断内存空间是否用完，直接通过比对 \_M\_end\_of\_storage 和 \_M\_finish 是否相等来判断。
+
+	  bool empty() const
+	    { return begin() == end(); }
+
+<div class="cut"></div>
+函数 operator[] 和 at 函数实现的功能是类似的，都是通过索引值获取指定位置的元素。两个不同的地方是 at 函数调用了 operator[] 的功能。其次是 at 函数中有越界检测，由其中的 \_M\_range\_check 实现，如果索引值越界会抛出一个异常。operator[] 中没有越界检测，需使用者在使用之前自行检测。
+
+	  reference operator[](size_type __n) { return *(begin() + __n); }
+	  reference at(size_type __n)
+	    { _M_range_check(__n); return (*this)[__n]; }
+	    
+<div class="cut"></div>
+vector 中一共有五个构造函数 第一个构造函数声明一个空的 vector 对象，其中 \_Base 为基类的类型别名。
+
+	  explicit vector(const allocator_type& __a = allocator_type())
+	    : _Base(__a) {}
+
+<div class="cut"></div>
+第二个构造函数初始化了一个含有 \_\_n 个值为 \_\_value 的 vector 对象。其中的 uninitialized\_fill\_n 用于在给定地址空间 (这里是 \_M\_start开始的位置) 上构造 \_\_n 个值为 value 的对象，返回值为最后一个元素的结束地址。uninitialized\_fill\_n 在 stl\_uinitialized.h 中定义。
+
+	  vector(size_type __n, const _Tp& __value,
+		 const allocator_type& __a = allocator_type()) 
+	    : _Base(__n, __a)
+	    { _M_finish = uninitialized_fill_n(_M_start, __n, __value); }
+
+<div class="cut"></div>
+第三个函数与第二个类似，但函数中没有指定元素值，因此采用 \_Tp 类型的默认值进行初始化。
+
+	  explicit vector(size_type __n)
+	    : _Base(__n, allocator_type())
+	    { _M_finish = uninitialized_fill_n(_M_start, __n, _Tp()); }
+
+<div class="cut"></div>
+拷贝构造函数中先对基类进行初始化，初始化时基类会分配可容纳 \_\_x 中所有元素的空间，然后调用 uninitialized\_copy 来将 \_\_x 中的对象复制到当前 vector 中。uninitialized\_copy 也是在 stl\_unintizlized.h 中定义。
+
+	  vector(const vector<_Tp, _Alloc>& __x) 
+	    : _Base(__x.size(), __x.get_allocator())
+	    { _M_finish = uninitialized_copy(__x.begin(), __x.end(), _M_start); }
+
+<div class="cut"></div>
+最后一个构造函数是用两个迭代器限定的地址空间中的内容来初始化当前的 vector 。 函数中定义了一个类型别名 \_Integral, 其中的 \_Is\_integer 是一个类模板，有一个模板形参，当用一个模板实参对其实例化时，如果模板实参为整型，其成员类型 \_Intgral 会是 \_true\_type 的类型别名 。否则 \_Integral 会是 \_false\_type 的类型别名。构造函数中通过查看 \_InputIterator 的类型来决定调用哪个 \_M\_initialize\_aux ，vector 中 \_M\_initialize\_aux 有两个实现。
+
+	  template <class _InputIterator>
+	  vector(_InputIterator __first, _InputIterator __last,
+		 const allocator_type& __a = allocator_type()) : _Base(__a) {
+	    typedef typename _Is_integer<_InputIterator>::_Integral _Integral;
+	    _M_initialize_aux(__first, __last, _Integral());
+	  }
+
+<div class="cut"></div>
+\_M\_initialize\_aux 根据最后一个形参是 \_true\_type 还是 \_false\_type 有两种不同的定义。
+
+如果是 \_true\_type 说明 传进来的模板实参是整型。则认为函数的前两个形参都是整型变量，函数会认为调用的意图是希望为 vector 初始化 \_\_n 个 值为 \_\_value 的元素。具体的实现是先分配 \_\_n 个对象所需的空间，设定三个记录内存位置的成员变量，并且在分配的内存空间上构造对象 (调用 uninitialized\_fill\_n )
+
+	  template <class _Integer>
+	  void _M_initialize_aux(_Integer __n, _Integer __value, __true_type) {
+	    _M_start = _M_allocate(__n);
+	    _M_end_of_storage = _M_start + __n; 
+	    _M_finish = uninitialized_fill_n(_M_start, __n, __value);
+	  }
+
+<div class="cut"></div>
+如果最后一个形参为 \_\_false\_type 则认为传进来的模板实参不是整型，此时会认为传进来的是一个迭代器（如果模板实参既不是整型也不是迭代器则在编译上就通不过）。函数会调用 \_M\_range\_initialize 函数来进行初始化。
+
+	  template <class _InputIterator>
+	  void _M_initialize_aux(_InputIterator __first, _InputIterator __last,
+				 __false_type) {
+	    _M_range_initialize(__first, __last, __ITERATOR_CATEGORY(__first));
+	  }
+
+<div class="cut"></div>
+
+[STL 的 vector 分析（一）](../13/vector1.html)</br>
+[STL 的 vector 分析（二）](../13/vector2.html)</br>
+[STL 的 vector 分析（三）](../13/vector3.html)</br>

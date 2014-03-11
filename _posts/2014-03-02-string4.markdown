@@ -1,0 +1,360 @@
+---
+title: STL 的 string 分析（四）
+layout: post
+key: be47ff92-a436-4e61-90a7-8cbcfcd4be6d
+tags:
+  -string 
+  -STL
+---
+
+函数 \_M\_copy 调用 \_Traits::assign 通过一个 for 循环将 \_\_first 到 \_\_last 之间的内容复制到 \_\_result 开始的地方。
+
+	  template <class _InputIterator>
+	  void 
+	  _M_copy(_InputIterator __first, _InputIterator __last, iterator __result) {
+	    for ( ; __first != __last; ++__first, ++__result)
+	      _Traits::assign(*__result, *__first);
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_copy 将 \_\_first 到 \_\_last 之间的内容复制到 \_\_result 开始的地址。
+
+	  void 
+	  _M_copy(const _CharT* __first, const _CharT* __last, _CharT* __result) {
+	    _Traits::copy(__result, __first, __last - __first);
+	  }
+
+<div class="cut"></div>
+
+函数 insert 将给定 basic\_string \_\_s 中的内容插入到当前 basic\_string 中 \_\_pos 所在位置之前。调用前面定义的 insert 函数进行插入。
+
+	  basic_string& insert(size_type __pos, const basic_string& __s) {
+	    if (__pos > size())
+	      _M_throw_out_of_range();
+	    if (size() > max_size() - __s.size())
+	      _M_throw_length_error();
+	    insert(_M_start + __pos, __s.begin(), __s.end());
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+函数 insert 将给定 basic\_string 中从 \_\_beg 开始完后的 \_\_n 个元素插入到当前 \_\_basic\_string 中 \_\_pos 所在位置之前。通过调用之前定义的 insert 函数进行插入。
+
+	  basic_string& insert(size_type __pos, const basic_string& __s,
+			       size_type __beg, size_type __n) {
+	    if (__pos > size() || __beg > __s.size())
+	      _M_throw_out_of_range();
+	    size_type __len = min(__n, __s.size() - __beg);
+	    if (size() > max_size() - __len)
+	      _M_throw_length_error();
+	    insert(_M_start + __pos,
+		   __s.begin() + __beg, __s.begin() + __beg + __len);
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+函数 inert 将 \_\_s 开始的 \_\_n 的元素插入到当前 basic\_string 中 \_\_pos 所在位置之前。
+
+	  basic_string& insert(size_type __pos, const _CharT* __s, size_type __n) {
+	    if (__pos > size())
+	      _M_throw_out_of_range();
+	    if (size() > max_size() - __n)
+	      _M_throw_length_error();
+	    insert(_M_start + __pos, __s, __s + __n);
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+函数 insert 将 \_\_s 到结束标记所在位置之间的元素插入到当前 basic\_string 中 \_\_pos 所在位置之前。
+
+	  basic_string& insert(size_type __pos, const _CharT* __s) {
+	    if (__pos > size())
+	      _M_throw_out_of_range();
+	    size_type __len = _Traits::length(__s);
+	    if (size() > max_size() - __len)
+	      _M_throw_length_error();
+	    insert(_M_start + __pos, __s, __s + __len);
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+函数 insert 将 \_\_n 个值为 \_\_c 的元素插入到当前 basic\_string 中 \_\_pos 所在位置之前。
+
+	  basic_string& insert(size_type __pos, size_type __n, _CharT __c) {
+	    if (__pos > size())
+	      _M_throw_out_of_range();
+	    if (size() > max_size() - __n)
+	      _M_throw_length_error();
+	    insert(_M_start + __pos, __n, __c);
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+函数 erase 函数将当前 basic\_string 中 \_\_first 位置到 \_\_last 位置之间的元素删除。函数首先将 \_M\_last 之后的 (\_M\_finish - \_\_last) + 1 (包括 \_M\_last 和 \_M\_finish 所在位置的元素)个元素移动到 \_M\_first 开始的位置。令 \_\_new\_finish = \_M\_finish - (\_\_last - \_\_first) (也即原先 \_M\_finish 所在位置的元素往前移动 (\_M\_finish - \_\_last) + 1 个位置之后的新位置) 。然后将 \_\_new\_finish + 1 到 \_M\_finish + 1 之间的元素销毁，更新 \_M\_finish 。
+
+	  iterator erase(iterator __first, iterator __last) {
+	    if (__first != __last) {
+					// The move includes the terminating null.
+	      _Traits::move(__first, __last, (_M_finish - __last) + 1);
+	      const iterator __new_finish = _M_finish - (__last - __first);
+	      destroy(__new_finish + 1, _M_finish + 1);
+	      _M_finish = __new_finish;
+	    }
+	    return __first;
+	  }
+
+<div class="cut"></div>
+
+函数 erase 删除从 \_\_pos 开始往后的 \_\_n 个元素， \_\_n 的缺省实参为 npos 。调用上面定义的 erase 函数来进行删除。
+
+	  basic_string& erase(size_type __pos = 0, size_type __n = npos) {
+	    if (__pos > size())
+	      _M_throw_out_of_range();
+	    erase(_M_start + __pos, _M_start + __pos + min(__n, size() - __pos));
+	    return *this;
+	  }  
+
+<div class="cut"></div>
+
+函数 erase 将 \_\_position 所在位置的元素删除。将 \_\_position + 1 开始往后的 \_M\_finish - \_\_position 个元素 (包括 \_M\_finish 所在位置的元素) 整体往前移动一个位置。然后将 \_M\_finish 所在位置的元素销毁，再更新 \_M\_finish 。
+
+	  iterator erase(iterator __position) {
+                                // The move includes the terminating null.
+	    _Traits::move(__position, __position + 1, _M_finish - __position);
+	    destroy(_M_finish);
+	    --_M_finish;
+	    return __position;
+	  }
+
+<div class="cut"></div>
+
+函数 replace 用 \_\_n 个值为 \_\_c 的元素替换掉当前 basic\_string 中从 \_\_first 到 \_\_last 的元素。令 \_\_len 为 \_\_first 到 \_\_last 之间的元素个数，如果 \_\_len >= \_\_n ，则将从 \_\_first 开始往后的 \_\_n 个位置赋值为 \_\_c 。然后将 \_\_first + \_\_n 到 \_\_last 之间的元素调用 erase 函数删除。如果 \_\_len < \_\_n ，则先将 \_\_first 到 \_\_last 之间的元素赋值为 \_\_c ，然后在 \_\_last 所在位置插入 \_\_n - \_\_len 个值为 \_\_c 的元素。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	basic_string<_CharT,_Traits,_Alloc>&
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::replace(iterator __first, iterator __last, size_type __n, _CharT __c)
+	{
+	  const size_type __len = static_cast<size_type>(__last - __first);
+	  if (__len >= __n) {
+	    _Traits::assign(__first, __n, __c);
+	    erase(__first + __n, __last);
+	  }
+	  else {
+	    _Traits::assign(__first, __len, __c);
+	    insert(__last, __n - __len, __c);
+	  }
+	  return *this;
+	}
+
+<div class="cut"></div>
+
+函数 replace 用 \_\_f 到 \_\_l 之间的内容替换掉当前 basic\_string 中 \_\_first 到 \_\_last 之间的内容。如果 \_\_f 到 \_\_l 之间的内容少，则先将 \_\_f 到 \_\_l 之间的内容复制到 \_\_first 开始的地方，将 \_\_first 到 \_\_last 中多余的部分删除，如果 \_\_f 到 \_\_l 之间的内容比 \_\_first 到 \_\_last 要多，则先用 \_\_f 到 \_\_l 中前面长度和 \_\_first 到 \_\_last 长度相同的部分填满 \_\_first 到 \_\_last 之间的位置，然后将 \_\_f 到 \_\_l 中剩余的部分插入到 \_\_last 之前的位置。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	template <class _InputIter>
+	basic_string<_CharT,_Traits,_Alloc>&
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::replace(iterator __first, iterator __last, _InputIter __f, _InputIter __l,
+		    input_iterator_tag) 
+	{
+	  for ( ; __first != __last && __f != __l; ++__first, ++__f)
+	    _Traits::assign(*__first, *__f);
+
+	  if (__f == __l)
+	    erase(__first, __last);
+	  else
+	    insert(__last, __f, __l);
+	  return *this;
+	}
+
+<div class="cut"></div>
+
+函数 replace 用 \_\_f 到 \_\_l 之间的内容替换掉当前 basic\_string 中 \_\_first 到 \_\_last 的内容。令 \_\_n 为 \_\_f 到 \_\_l 之间的长度，令 \_\_len 为 \_\_first 到 \_\_last 之间的长度。如果 \_\_len >= \_\_n ，则先将 \_\_f 到 \_\_l 之间的内容复制到 \_\_first 开始往后的 \_\_n 个位置，然后将 \_\_first + n 到 \_\_last 之间的元素删除。如果 \_\_len < \_\_n ，则先将 \_\_f 到 \_\_l 之间的前 \_\_len 个元素复制到 \_\_first 到 \_\_last 之间，再将 \_\_f + \_\_len 到 \_\_l 之间的元素复制到 \_\_last 之前的位置。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	template <class _ForwardIter>
+	basic_string<_CharT,_Traits,_Alloc>&
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::replace(iterator __first, iterator __last,
+		    _ForwardIter __f, _ForwardIter __l,
+		    forward_iterator_tag) 
+	{
+	  difference_type __n = 0;
+	  distance(__f, __l, __n);
+	  const difference_type __len = __last - __first;
+	  if (__len >= __n) {
+	    _M_copy(__f, __l, __first);
+	    erase(__first + __n, __last);
+	  }
+	  else {
+	    _ForwardIter __m = __f;
+	    advance(__m, __len);
+	    _M_copy(__f, __m, __first);
+	    insert(__last, __m, __l);
+	  }
+	  return *this;
+	}
+
+<div class="cut"></div>
+
+函数 replace 会根据 \_\_f 的类型不同分别调用 \_M\_replace\_dispatch 的不同定义，当 \_\_f 为整型时，\_M\_replace\_dispatch 用 \_\_f 个值为 \_\_l 的元素替换掉当前 basic\_string 中 \_\_first 到 \_\_last 的内容。 如果 \_\_f 不为整型，则认为 \_\_f 是一个迭代器，则使用 \_\_f 到 \_\_l 之间的内容替换掉当前 basic\_string 中 \_\_first 到 \_\_last 之间的内容。
+
+	  template <class _InputIter>
+	  basic_string& replace(iterator __first, iterator __last,
+				_InputIter __f, _InputIter __l) {
+	    typedef typename _Is_integer<_InputIter>::_Integral _Integral;
+	    return _M_replace_dispatch(__first, __last, __f, __l,  _Integral());
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_replace\_dispatch 函数用 \_\_n 个值为 \_\_x 的元素替换掉当前 basic\_string 中 \_\_first 到 \_\_last 之间的内容。
+
+	  template <class _Integer>
+	  basic_string& _M_replace_dispatch(iterator __first, iterator __last,
+					    _Integer __n, _Integer __x,
+					    __true_type) {
+	    return replace(__first, __last, (size_type) __n, (_CharT) __x);
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_replace\_dispatch 用 \_\_f 到 \_\_l 之间的内容替换掉当前 basic\_string 中 \_\_first 到 \_\_last 之间的内容。
+
+	  template <class _InputIter>
+	  basic_string& _M_replace_dispatch(iterator __first, iterator __last,
+					    _InputIter __f, _InputIter __l,
+					    __false_type) {
+	    typedef typename iterator_traits<_InputIter>::iterator_category _Category;
+	    return replace(__first, __last, __f, __l, _Category());
+	  }
+
+<div class="cut"></div>
+
+函数 replace 用给定 basic\_string \_\_s 中的内容替换掉当前 basic\_string 中 \_\_pos 往后的 \_\_n 个元素。调用之前定义的 replace 函数来进行替换。
+
+	  basic_string& replace(size_type __pos, size_type __n, 
+				const basic_string& __s) {
+	    if (__pos > size())
+	      _M_throw_out_of_range();
+	    const size_type __len = min(__n, size() - __pos);
+	    if (size() - __len >= max_size() - __s.size())
+	      _M_throw_length_error();
+	    return replace(_M_start + __pos, _M_start + __pos + __len, 
+			   __s.begin(), __s.end());
+	  }
+
+<div class="cut"></div>
+
+函数 replace 用给定 basic\_string 中 \_\_pos 往后的 \_\_n2 个元素替换掉当前 basic\_string 中 \_\_pos1 完后的 \_\_n1 个元素。也是应该之前定义的 replace 函数来进行替换。
+
+	  basic_string& replace(size_type __pos1, size_type __n1,
+				const basic_string& __s,
+				size_type __pos2, size_type __n2) {
+	    if (__pos1 > size() || __pos2 > __s.size())
+	      _M_throw_out_of_range();
+	    const size_type __len1 = min(__n1, size() - __pos1);
+	    const size_type __len2 = min(__n2, __s.size() - __pos2);
+	    if (size() - __len1 >= max_size() - __len2)
+	      _M_throw_length_error();
+	    return replace(_M_start + __pos1, _M_start + __pos1 + __len1,
+			   __s._M_start + __pos2, __s._M_start + __pos2 + __len2);
+	  }
+
+<div class="cut"></div>
+
+函数 replace 用 \_\_s 开始往后的 \_\_n2 个元素替换掉当前 basic\_string 中 \_\_pos 开始往后的 \_\_n1 个元素。
+
+	  basic_string& replace(size_type __pos, size_type __n1,
+				const _CharT* __s, size_type __n2) {
+	    if (__pos > size())
+	      _M_throw_out_of_range();
+	    const size_type __len = min(__n1, size() - __pos);
+	    if (__n2 > max_size() || size() - __len >= max_size() - __n2)
+	      _M_throw_length_error();
+	    return replace(_M_start + __pos, _M_start + __pos + __len,
+			   __s, __s + __n2);
+	  }
+
+<div class="cut"></div>
+
+函数 replace 用 \_\_s 开始往后到结束标记所在位置之间的元素替换掉当前 basic\_string 中 \_\_pos 往后的 \_\_n1 个元素。
+
+	  basic_string& replace(size_type __pos, size_type __n1,
+				const _CharT* __s) {
+	    if (__pos > size())
+	      _M_throw_out_of_range();
+	    const size_type __len = min(__n1, size() - __pos);
+	    const size_type __n2 = _Traits::length(__s);
+	    if (__n2 > max_size() || size() - __len >= max_size() - __n2)
+	      _M_throw_length_error();
+	    return replace(_M_start + __pos, _M_start + __pos + __len,
+			   __s, __s + _Traits::length(__s));
+	  }
+
+<div class="cut"></div>
+
+函数 replace 用 \_\_n2 个值为 \_\_c 的元素替换掉当前 basic\_string 中 \_\_pos 所在位置开始往后的 \_\_n1 个元素。
+
+	  basic_string& replace(size_type __pos, size_type __n1,
+				size_type __n2, _CharT __c) {
+	    if (__pos > size())
+	      _M_throw_out_of_range();
+	    const size_type __len = min(__n1, size() - __pos);
+	    if (__n2 > max_size() || size() - __len >= max_size() - __n2)
+	      _M_throw_length_error();
+	    return replace(_M_start + __pos, _M_start + __pos + __len, __n2, __c);
+	  }
+
+<div class="cut"></div>
+
+函数 replace 用给定 basic\_string \_\_s 中的内容替换掉当前 basic\_string 中从 \_\_first 到 \_\_last 之间的内容。
+
+	  basic_string& replace(iterator __first, iterator __last, 
+				const basic_string& __s) 
+	    { return replace(__first, __last, __s.begin(), __s.end()); }
+
+<div class="cut"></div>
+
+函数 replace 用从 \_\_s 开始往后的 \_\_n 个元素替换掉当前 basic\_string 中 \_\_first 到 \_\_last 之间的内容。
+
+	  basic_string& replace(iterator __first, iterator __last,
+				const _CharT* __s, size_type __n) 
+	    { return replace(__first, __last, __s, __s + __n); }
+
+<div class="cut"></div>
+
+函数 replace 用从 \_\_s 开始到结束标记所在位置之间的元素替换掉当前 basic\_string 中 \_\_first 到 \_\_last 之间的元素。
+
+	  basic_string& replace(iterator __first, iterator __last,
+				const _CharT* __s) {
+	    return replace(__first, __last, __s, __s + _Traits::length(__s));
+	  }
+
+<div class="cut"></div>
+
+函数 copy 将当前 basic\_string 中从 \_\_pos 所在位置开始往后的 \_\_n 个元素复制到 \_\_s 开始的位置上。
+
+	  size_type copy(_CharT* __s, size_type __n, size_type __pos = 0) const {
+	    if (__pos > size())
+	      _M_throw_out_of_range();
+	    const size_type __len = min(__n, size() - __pos);
+	    _Traits::copy(__s, _M_start + __pos, __len);
+	    return __len;
+	  }
+
+<div class="cut"></div>
+
+[STL 的 string 分析（一）](../02/string1.html)</br>
+[STL 的 string 分析（二）](../02/string2.html)</br>
+[STL 的 string 分析（三）](../02/string3.html)</br>
+[STL 的 string 分析（四）](../02/string4.html)</br>
+[STL 的 string 分析（五）](../02/string5.html)</br>
+[STL 的 string 分析（六）](../02/string6.html)</br>

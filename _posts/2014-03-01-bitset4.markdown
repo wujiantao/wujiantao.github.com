@@ -1,0 +1,200 @@
+---
+title: STL 的 bitset 分析（四）
+layout: post
+key: 3a3b2067-05ac-46fd-9472-c049ef1bc11f
+tags:
+  -bitset 
+  -STL 
+---
+
+函数 count 返回当前 bitset 中为 1 的位的个数。
+
+	  size_t count() const { return this->_M_do_count(); }
+
+<div class="cut"></div>
+	  
+函数 size 返回当前 bitset 中一共有多少位。
+
+	  size_t size() const { return _Nb; }
+
+<div class="cut"></div>
+	  
+函数 operator== 判断当前 bitset 与指定 bitset \_\_rhs 是否相等。
+
+	  bool operator==(const bitset<_Nb>& __rhs) const {
+	    return this->_M_is_equal(__rhs);
+	  }
+
+<div class="cut"></div>
+	  
+函数 test 用来检测 bitset 的第 \_\_pos 为是否为 1 。
+
+	  bool test(size_t __pos) const {
+	    if (__pos > _Nb)
+	      __STL_THROW(out_of_range("bitset"));
+
+	    return _Unchecked_test(__pos);
+	  }
+
+<div class="cut"></div>
+	  
+函数 any 用来判断 bitset 中是否存在为 1 的位，函数 none 用来判断 bitset 中是否所有位都为 0 。
+
+	  bool any() const { return this->_M_is_any(); }
+	  bool none() const { return !this->_M_is_any(); }
+
+<div class="cut"></div>
+	  
+函数 operator<< 返回将当前 bitset 左移 \_\_pos 位之后的结果，operator>> 返回将当前 bitset 右移 \_\_pos 位之后的结果。
+
+	  bitset<_Nb> operator<<(size_t __pos) const
+	    { return bitset<_Nb>(*this) <<= __pos; }
+	  bitset<_Nb> operator>>(size_t __pos) const
+	    { return bitset<_Nb>(*this) >>= __pos; }
+
+<div class="cut"></div>
+	  
+函数 \_Find\_first 查找从最低位开始第一个为 1 的位所在的位置。
+
+	  size_t _Find_first() const 
+	    { return this->_M_do_find_first(_Nb); }
+
+<div class="cut"></div>
+	  
+函数 \_Find\_next 用来查找从 \_\_prev 的后一位开始第一个为 1 的位所在的位置。
+
+	  size_t _Find_next( size_t __prev ) const 
+	    { return this->_M_do_find_next(__prev, _Nb); }
+
+<div class="cut"></div>
+	  
+函数 \_M\_copy\_from\_string 用来将给定字符串 \_\_s 中的第 \_\_pos 位之后的 \_\_n 个字符来更新当前 bitset 。要求 \_\_s 中第 \_\_pos 位之后的 \_\_n 个字符都为字符 0 或者字符 1 。
+
+	template <size_t _Nb>
+	template<class _CharT, class _Traits, class _Alloc>
+	void bitset<_Nb>
+	  ::_M_copy_from_string(const basic_string<_CharT,_Traits,_Alloc>& __s,
+				size_t __pos,
+				size_t __n)
+	{
+	  reset();
+	  const size_t __nbits = min(_Nb, min(__n, __s.size() - __pos));
+	  for (size_t __i = 0; __i < __nbits; ++__i) {
+	    switch(__s[__pos + __nbits - __i - 1]) {
+	    case '0':
+	      break;
+	    case '1':
+	      set(__i);
+	      break;
+	    default:
+	      __STL_THROW(invalid_argument("bitset"));
+	    }
+	  }
+	}
+
+<div class="cut"></div>
+	  
+将当前 bitset 中的内容转换成字符串的形式，存储于引用形参 \_\_s 中。
+
+	template <size_t _Nb>
+	template <class _CharT, class _Traits, class _Alloc>
+	void bitset<_Nb>
+	  ::_M_copy_to_string(basic_string<_CharT, _Traits, _Alloc>& __s) const
+	{
+	  __s.assign(_Nb, '0');
+	  
+	  for (size_t __i = 0; __i < _Nb; ++__i) 
+	    if (_Unchecked_test(__i))
+	      __s[_Nb - 1 - __i] = '1';
+	}
+
+<div class="cut"></div>
+	  
+函数 operator& 返回两个 bitset 按位与后的结果。
+
+	template <size_t _Nb>
+	inline bitset<_Nb> operator&(const bitset<_Nb>& __x, const bitset<_Nb>& __y) {
+	  bitset<_Nb> __result(__x);
+	  __result &= __y;
+	  return __result;
+	}
+
+<div class="cut"></div>
+	  
+函数 operator| 返回两个 bitset 按位或之后的结果。
+
+	template <size_t _Nb>
+	inline bitset<_Nb> operator|(const bitset<_Nb>& __x, const bitset<_Nb>& __y) {
+	  bitset<_Nb> __result(__x);
+	  __result |= __y;
+	  return __result;
+	}
+
+<div class="cut"></div>
+	  
+函数 operator^ 返回两个 bitset 按位异或的结果。
+
+	template <size_t _Nb>
+	inline bitset<_Nb> operator^(const bitset<_Nb>& __x, const bitset<_Nb>& __y) {
+	  bitset<_Nb> __result(__x);
+	  __result ^= __y;
+	  return __result;
+	}
+	
+<div class="cut"></div>
+	  
+函数 operator>> 用来通过输入的字符来更新指定的 bitset 。输入时允许有前导的空格。除此之外输入中 只能有 0 或者 1。如果碰到非 0 或者 1 的输入，则会舍弃剩余的输入。并将前面获取的有效输入来更新指定的 bitset \_\_x 。
+
+	template <size_t _Nb>
+	istream& operator>>(istream& __is, bitset<_Nb>& __x) {
+	  string __tmp;
+	  __tmp.reserve(_Nb);
+
+	  if (__is.flags() & ios::skipws) {
+	    char __c;
+	    do 
+	      __is.get(__c);
+	    while (__is && isspace(__c));
+	    if (__is)
+	      __is.putback(__c);
+	  }
+
+	  for (size_t __i = 0; __i < _Nb; ++__i) {
+	    char __c;
+	    __is.get(__c);
+
+	    if (!__is)
+	      break;
+	    else if (__c != '0' && __c != '1') {
+	      __is.putback(__c);
+	      break;
+	    }
+	    else
+	      __tmp.push_back(__c);
+	  }
+
+	  if (__tmp.empty()) 
+	    __is.clear(__is.rdstate() | ios::failbit);
+	  else
+	    __x._M_copy_from_string(__tmp, static_cast<size_t>(0), _Nb);
+
+	  return __is;
+	}
+
+<div class="cut"></div>
+	  
+函数 operator<< 用来对指定 bitset 中的内容进行输出，首先获得指定 bitset 的字符串形式，然后调用输出流对字符串进行输出。
+
+	template <size_t _Nb>
+	ostream& operator<<(ostream& __os, const bitset<_Nb>& __x) {
+	  string __tmp;
+	  __x._M_copy_to_string(__tmp);
+	  return __os << __tmp;
+	}
+
+<div class="cut"></div>
+
+[STL 的 bitset 分析（一）](../01/bitset1.html)</br>
+[STL 的 bitset 分析（二）](../01/bitset2.html)</br>
+[STL 的 bitset 分析（三）](../01/bitset3.html)</br>
+[STL 的 bitset 分析（四）](../01/bitset4.html)</br>

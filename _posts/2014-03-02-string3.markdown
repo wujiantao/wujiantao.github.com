@@ -1,0 +1,349 @@
+---
+title: STL 的 string 分析（三）
+layout: post
+key: 238db7bf-7f6a-4a95-8f88-4c68f3ac2813
+tags:
+  -string 
+  -STL
+---
+
+函数 push\_back 将一个值为 \_\_c 的新元素插入到 basic\_string 的尾部。如果当前 basic\_string 中已经没有了多余的空间，则调用 reserve 分配新空间，新空间的大小至少为原空间的两倍。然后在 \_M\_finish + 1 的位置设置结束标记，调用 \_Traits 中的静态成员函数 assign 将原先 \_M\_finish 所在位置的元素置为 \_\_c 。更新 \_M\_finish 。
+
+	  void push_back(_CharT __c) {
+	    if (_M_finish + 1 == _M_end_of_storage)
+	      reserve(size() + max(size(), static_cast<size_type>(1)));
+	    _M_construct_null(_M_finish + 1);
+	    _Traits::assign(*_M_finish, __c);
+	    ++_M_finish;
+	  }
+
+<div class="cut"></div>
+
+函数 pop\_back 用来在函数尾部移除一个元素。首先在 \_M\_finish - 1 的位置上设置结束标记，然后将 \_M\_finish 所在位置的元素删除(用作结束标记的空元素)。更新 \_M\_finish 。
+
+	  void pop_back() {
+	    _Traits::assign(*(_M_finish - 1), _M_null());
+	    destroy(_M_finish);
+	    --_M_finish;
+	  }
+
+<div class="cut"></div>
+
+函数 assign 函数将 \_\_n 个值为 \_\_c 的元素赋值给当前 basic\_string 。如果 \_\_n 小于 size() ，则先将 basic\_string 的前 \_\_n 个元素赋值为 \_\_c ，再将多余的元素删除，否则先将所有的 size() 个元素都赋值为 \_\_c ，再在尾部插入 \_\_n - size() 个值为 \_\_c 的元素。
+
+	template <class _CharT, class _Traits, class _Alloc> 
+	basic_string<_CharT,_Traits,_Alloc>& 
+	basic_string<_CharT,_Traits,_Alloc>::assign(size_type __n, _CharT __c) {
+	  if (__n <= size()) {
+	    _Traits::assign(_M_start, __n, __c);
+	    erase(_M_start + __n, _M_finish);
+	  }
+	  else {
+	    _Traits::assign(_M_start, size(), __c);
+	    append(__n - size(), __c);
+	  }
+	  return *this;
+	}
+
+<div class="cut"></div>
+
+函数 \_M\_assign\_dispatch 将 \_\_f 到 \_\_l 之间的元素赋值给当前 basic\_string。
+
+	template <class _CharT, class _Traits, class _Alloc> 
+	template <class _InputIter>
+	basic_string<_CharT,_Traits,_Alloc>& basic_string<_CharT,_Traits,_Alloc>
+	  ::_M_assign_dispatch(_InputIter __f, _InputIter __l, __false_type)
+	{
+	  pointer __cur = _M_start;
+	  while (__f != __l && __cur != _M_finish) {
+	    _Traits::assign(*__cur, *__f);
+	    ++__f;
+	    ++__cur;
+	  }
+	  if (__f == __l)
+	    erase(__cur, _M_finish);
+	  else
+	    append(__f, __l);
+	  return *this;
+	}
+
+<div class="cut"></div>
+
+函数 \_M\_assign\_dispatch 将 \_\_n 个值为 \_\_x 的元素赋值给当前 basic\_string 。调用之前定义的 assign 函数来实现。
+
+	  template <class _Integer>
+	  basic_string& _M_assign_dispatch(_Integer __n, _Integer __x, __true_type) {
+	    return assign((size_type) __n, (_CharT) __x);
+	  }
+
+<div class="cut"></div>
+
+函数 assign 根据 \_\_first 的类型是否为整型，调用之前定义的不同的 \_M\_assign\_dispatch 函数来实现赋值，如果 \_\_first 为整型，则将 \_\_first 个值为 \_\_last 的元素赋值给 basic\_string 。否则认为 \_\_first 是一个迭代器，将 \_\_first 到 \_\_last 之间的元素赋值给 basic\_string。
+
+	  template <class _InputIter>
+	  basic_string& assign(_InputIter __first, _InputIter __last) {
+	    typedef typename _Is_integer<_InputIter>::_Integral _Integral;
+	    return _M_assign_dispatch(__first, __last, _Integral());
+	  }
+
+<div class="cut"></div>
+
+函数 assign 将给定 basic\_string \_\_s 中的内容赋值给当前 basic\_string ，调用以后的 assign 定义来实现。
+
+	  basic_string& assign(const basic_string& __s) 
+	    { return assign(__s.begin(), __s.end()); }
+
+<div class="cut"></div>
+
+函数 assign 将给定 basic\_string \_\_s 中第 \_\_pos 个位置开始的 \_\_n 个元素赋值给当前 basic\_string 。调用已有的 assign 函数来实现。
+
+	  basic_string& assign(const basic_string& __s, 
+			       size_type __pos, size_type __n) {
+	    if (__pos > __s.size())
+	      _M_throw_out_of_range();
+	    return assign(__s.begin() + __pos, 
+			  __s.begin() + __pos + min(__n, __s.size() - __pos));
+	  }
+
+<div class="cut"></div>
+
+函数 assign 将从 \_\_s 开始的 \_\_n 个元素赋值给当前 basic\_string。调用已有的 assign 函数来实现。
+
+	  basic_string& assign(const _CharT* __s, size_type __n)
+	    { return assign(__s, __s + __n); }
+
+<div class="cut"></div>
+
+函数 assign 将从 \_\_s 开始到结束标记所在的位置之间的元素赋值给 basic\_string。 
+
+	  basic_string& assign(const _CharT* __s)
+	    { return assign(__s, __s + _Traits::length(__s)); }
+
+<div class="cut"></div>
+
+函数 \_M\_insert\_aux 将指定元素 \_\_c 插入到 basic\_string 中的指定位置 p 上。如果 basic\_string 中还有多余的空间容纳新元素，则先将 \_\_p 开始到 \_M\_finish 之间的元素整体往后移动一个位置，再将位置 \_\_p 上的元素值赋值为 \_\_c 。move 和 assign 函数都是调用 \_Traits 中的静态成员函数(\_Traits 通常用 char\_traits 进行实例化)。再更新 \_M\_finish。如果 basic\_string 中已没有多余的空间，则先分配新的足够容纳新元素的空间，然后将原先 \_M\_start 到 \_\_p 之间的元素复制到新地址，再在后面创建一个值为 \_\_c 的新元素，最后将原先 \_\_p 到 \_M\_finish 之间的元素复制到后面。销毁原先 \_M\_start 到 \_M\_finish + 1 之间的元素，再释放原先 \_M\_start 到 \_M\_end\_of\_storage 的空间，最后更新 \_M\_start, \_M\_finish, \_M\_end\_of\_storage 。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	basic_string<_CharT,_Traits,_Alloc>::iterator 
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::_M_insert_aux(basic_string<_CharT,_Traits,_Alloc>::iterator __p,
+			  _CharT __c)
+	{
+	  iterator __new_pos = __p;
+	  if (_M_finish + 1 < _M_end_of_storage) {
+	    _M_construct_null(_M_finish + 1);
+	    _Traits::move(__p + 1, __p, _M_finish - __p);
+	    _Traits::assign(*__p, __c);
+	    ++_M_finish;
+	  }
+	  else {
+	    const size_type __old_len = size();
+	    const size_type __len = __old_len +
+				    max(__old_len, static_cast<size_type>(1)) + 1;
+	    iterator __new_start = _M_allocate(__len);
+	    iterator __new_finish = __new_start;
+	    __STL_TRY {
+	      __new_pos = uninitialized_copy(_M_start, __p, __new_start);
+	      construct(__new_pos, __c);
+	      __new_finish = __new_pos + 1;
+	      __new_finish = uninitialized_copy(__p, _M_finish, __new_finish);
+	      _M_construct_null(__new_finish);
+	    }
+	    __STL_UNWIND((destroy(__new_start,__new_finish), 
+			  _M_deallocate(__new_start,__len)));
+	    destroy(_M_start, _M_finish + 1);
+	    _M_deallocate_block();
+	    _M_start = __new_start;
+	    _M_finish = __new_finish;
+	    _M_end_of_storage = __new_start + __len;
+	  }
+	  return __new_pos;
+	}
+
+<div class="cut"></div>
+
+函数 insert 将 \_\_n 个值为 \_\_c 的元素插入到指定位置 \_\_position 的前面。如果 basic\_string 中有足够的空间容纳 \_\_n 个新元素，令 \_\_elems\_after 为 \_\_position 开始到 \_M\_finish 之间的元素个数。如果 \_\_elems\_after >= \_\_n ，则将最后面的 \_\_n 个元素(包括结束标记所在位置的元素)整体往后移动 \_\_n 个位置，并更新 \_M\_finish。再将 \_\_postion 开始的 \_elems\_after - \_\_n + 1 个元素整体往后移动 \_\_n 个位置，最后将 \_\_position 开始的 \_\_n 个位置上的元素都赋值为 \_\_c 。
+
+如果 elems\_after < n ,则首先将 \_M\_finish + 1 之后的 \_\_n - elems\_after - 1 个元素赋值为 \_\_c ，并更新 \_M\_finish += elems\_after - n 。然后将 \_\_position 到 \_\_old\_finish(为原先的 \_M\_finish) 之间的 \_\_elems\_after + 1 个元素复制到 \_M\_finish 之后，再更新 \_M\_finish += elems\_after (此时 \_M\_finish 所在的位置正好是原先的结束标记往后移动 \_\_n 个位置后的新位置)。再将\_\_position 之后的 \_\_elems\_after + 1 个元素赋值为 \_\_c 。
+
+如果当前 basic\_string 中没有足够的空间来容纳 \_\_n 个新元素，则先申请足够容纳 \_\_n 个新元素的空间，再先将原先 \_M\_start 到 \_\_position 之间的元素复制到新空间，之后在填充 \_\_n 个值为 \_\_c 的元素，再在后面复制原先 \_\_position 到 \_M\_finish 之间的元素。然后将原先 \_M\_start 到 \_M\_finish + 1 之间的元素销毁，并释放 \_M\_start 到 \_M\_end\_of\_storage 之间的空间。并更新 \_M\_start, \_M\_finish, \_M\_end\_of\_storage 。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	void basic_string<_CharT,_Traits,_Alloc>
+	  ::insert(basic_string<_CharT,_Traits,_Alloc>::iterator __position,
+		   size_t __n, _CharT __c)
+	{
+	  if (__n != 0) {
+	    if (size_type(_M_end_of_storage - _M_finish) >= __n + 1) {
+	      const size_type __elems_after = _M_finish - __position;
+	      iterator __old_finish = _M_finish;
+	      if (__elems_after >= __n) {
+		uninitialized_copy((_M_finish - __n) + 1, _M_finish + 1,
+				   _M_finish + 1);
+		_M_finish += __n;
+		_Traits::move(__position + __n,
+			      __position, (__elems_after - __n) + 1);
+		_Traits::assign(__position, __n, __c);
+	      }
+	      else {
+		uninitialized_fill_n(_M_finish + 1, __n - __elems_after - 1, __c);
+		_M_finish += __n - __elems_after;
+		__STL_TRY {
+		  uninitialized_copy(__position, __old_finish + 1, _M_finish);
+		  _M_finish += __elems_after;
+		}
+		__STL_UNWIND((destroy(__old_finish + 1, _M_finish), 
+			      _M_finish = __old_finish));
+		_Traits::assign(__position, __elems_after + 1, __c);
+	      }
+	    }
+	    else {
+	      const size_type __old_size = size();        
+	      const size_type __len = __old_size + max(__old_size, __n) + 1;
+	      iterator __new_start = _M_allocate(__len);
+	      iterator __new_finish = __new_start;
+	      __STL_TRY {
+		__new_finish = uninitialized_copy(_M_start, __position, __new_start);
+		__new_finish = uninitialized_fill_n(__new_finish, __n, __c);
+		__new_finish = uninitialized_copy(__position, _M_finish,
+						  __new_finish);
+		_M_construct_null(__new_finish);
+	      }
+	      __STL_UNWIND((destroy(__new_start,__new_finish),
+			    _M_deallocate(__new_start,__len)));
+	      destroy(_M_start, _M_finish + 1);
+	      _M_deallocate_block();
+	      _M_start = __new_start;
+	      _M_finish = __new_finish;
+	      _M_end_of_storage = __new_start + __len;    
+	    }
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 insert 将 \_\_first 到 \_\_last 之间的内容插入到当前 basic\_string 中指定位置 \_\_p 之前。第四个形参限定 \_\_first 为 input\_iterator 迭代器。
+
+	template <class _Tp, class _Traits, class _Alloc>
+	template <class _InputIter>
+	void basic_string<_Tp, _Traits, _Alloc>::insert(iterator __p,
+							_InputIter __first, 
+							_InputIter __last,
+							input_iterator_tag)
+	{
+	  for ( ; __first != __last; ++__first) {
+	    __p = insert(__p, *__first);
+	    ++__p;
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 insert 将 \_\_first 到 \_\_last 之间的元素插入到 \_\_position 所在的位置之前。函数首先计算出 \_\_first 到 \_\_last 之间的元素个数 \_\_n ，然后判断当前 basic\_string 中是否能容纳 \_\_n 个新元素。
+
+如果可以，令 \_\_elems\_after 为 position 到 \_M\_finish 之间的元素个数。如果 elems\_after >= n ，则将 \_M\_finish 开始之前的 \_\_n 个元素通过 uninitialized\_copy 整体往后移动 \_\_n 个位置(拷贝到新地址，等同于往后移动了 \_\_n 个位置)。然后将 \_\_position 开始往后的 \_\_elems\_after - n + 1 个元素整体往后移动 \_\_n 个位置。最后将 \_\_first 到 \_\_last 中的内容拷贝到 \_\_position 开始的 \_\_n 个位置上。
+
+如果 \_\_elems\_after < n ，则令 \_mid = \_\_first + \_\_elems\_after + 1。将 \_\_mid 到 \_\_last 之间的元素复制到 \_M\_finish + 1 开始的位置上。更新 M\_finish += \_\_n - \_\_elems\_after , 然后在将 \_\_position 到 old\_finish + 1(old\_finish 为原先的 \_M\_finish) 之间的 \_\_elems\_after + 1 个元素复制到 \_M\_finish 开始的位置。更新 \_M\_finsh += \_\_elems\_after 。最后将 \_\_first 到 \_\_mid 之间的 \_\_elems\_after 个元素元素拷贝到 \_\_position 开始的位置。
+
+如果当前 basic\_string 没有容纳 \_\_n 个新元素的空间，则申请足够容纳 \_\_n 个新元素的空间。先将 \_M\_start 到 \_\_position 之间的内容复制到新空间上，然后将 \_\_first 到 \_\_last 之间的元素复制到后面，再在后面复制原先 \_\_position 到 \_M\_finish 的内容, 并设置好结束标记。然后将原先 \_M\_start 到 \_M\_finish + 1 之间的元素销毁，最后将 \_M\_start 到 \_M\_end\_of\_storage 之间的空间释放，并更新 \_M\_start, \_M\_finish, \_M\_end\_of\_storage。
+
+
+	template <class _CharT, class _Traits, class _Alloc>
+	template <class _ForwardIter>
+	void 
+	basic_string<_CharT,_Traits,_Alloc>::insert(iterator __position,
+						    _ForwardIter __first, 
+						    _ForwardIter __last,
+						    forward_iterator_tag)
+	{
+	  if (__first != __last) {
+	    difference_type __n = 0;
+	    distance(__first, __last, __n);
+	    if (_M_end_of_storage - _M_finish >= __n + 1) {
+	      const difference_type __elems_after = _M_finish - __position;
+	      iterator __old_finish = _M_finish;
+	      if (__elems_after >= __n) {
+		uninitialized_copy((_M_finish - __n) + 1, _M_finish + 1,
+				   _M_finish + 1);
+		_M_finish += __n;
+		_Traits::move(__position + __n,
+			      __position, (__elems_after - __n) + 1);
+		_M_copy(__first, __last, __position);
+	      }
+	      else {
+		_ForwardIter __mid = __first;
+		advance(__mid, __elems_after + 1);
+		uninitialized_copy(__mid, __last, _M_finish + 1);
+		_M_finish += __n - __elems_after;
+		__STL_TRY {
+		  uninitialized_copy(__position, __old_finish + 1, _M_finish);
+		  _M_finish += __elems_after;
+		}
+		__STL_UNWIND((destroy(__old_finish + 1, _M_finish), 
+			      _M_finish = __old_finish));
+		_M_copy(__first, __mid, __position);
+	      }
+	    }
+	    else {
+	      const size_type __old_size = size();        
+	      const size_type __len
+		= __old_size + max(__old_size, static_cast<size_type>(__n)) + 1;
+	      pointer __new_start = _M_allocate(__len);
+	      pointer __new_finish = __new_start;
+	      __STL_TRY {
+		__new_finish = uninitialized_copy(_M_start, __position, __new_start);
+		__new_finish = uninitialized_copy(__first, __last, __new_finish);
+		__new_finish
+		  = uninitialized_copy(__position, _M_finish, __new_finish);
+		_M_construct_null(__new_finish);
+	      }
+	      __STL_UNWIND((destroy(__new_start,__new_finish),
+			    _M_deallocate(__new_start,__len)));
+	      destroy(_M_start, _M_finish + 1);
+	      _M_deallocate_block();
+	      _M_start = __new_start;
+	      _M_finish = __new_finish;
+	      _M_end_of_storage = __new_start + __len; 
+	    }
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 insert 根据 \_\_first 类型的不同会分别调用 \_M\_insert\_dispatch 的两种不同的定义，当 \_\_first 的类型为整型时，\_M\_insert\_dispatch 会将 \_\_first 个值为 \_\_last 的元素插入到当前 basic\_string 中 \_\_p 所在的位置之前。当 \_\_first 不为整型是，会将其看成一个迭代器，\_M\_insert\_dispatch 将 \_\_first 到 \_\_last 之间的内容插入到当前 basic\_string 中 \_\_p 所在的位置之前。
+
+	  template <class _InputIter>
+	  void insert(iterator __p, _InputIter __first, _InputIter __last) {
+	    typedef typename _Is_integer<_InputIter>::_Integral _Integral;
+	    _M_insert_dispatch(__p, __first, __last, _Integral());
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_insert\_dispatch 将 \_\_n 个值为 \_\_x 的元素插入到当前 basic\_string 中 \_\_p 所在的位置之前。
+
+	  template <class _Integer>
+	  void _M_insert_dispatch(iterator __p, _Integer __n, _Integer __x,
+				  __true_type) {
+	    insert(__p, (size_type) __n, (_CharT) __x);
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_insert\_dispatch 会将 \_\_first 到 \_\_last 之间的内容插入到当前 basic\_string 中 \_\_p 所在的位置之前。
+
+	  template <class _InputIter>
+	  void _M_insert_dispatch(iterator __p, _InputIter __first, _InputIter __last,
+				  __false_type) {
+	    typedef typename iterator_traits<_InputIter>::iterator_category _Category;
+	    insert(__p, __first, __last, _Category());
+	  }
+
+<div class="cut"></div>
+
+[STL 的 string 分析（一）](../02/string1.html)</br>
+[STL 的 string 分析（二）](../02/string2.html)</br>
+[STL 的 string 分析（三）](../02/string3.html)</br>
+[STL 的 string 分析（四）](../02/string4.html)</br>
+[STL 的 string 分析（五）](../02/string5.html)</br>
+[STL 的 string 分析（六）](../02/string6.html)</br>

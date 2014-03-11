@@ -1,0 +1,112 @@
+---
+title: STL 的 queue 分析
+layout: post
+key: 0c715086-9c37-4f2e-84a3-306b341eac3a
+tags:
+  -queue
+  -STL 
+---
+
+queue 是一个类模板，两个模板形参分别为 _Tp 和 _Sequence 。其中第一个模板形参 \_Tp 表示 queue 中的元素类型。第二个模板形参 \_Seqence 表示存储 queue 中的元素的底层容器的类型，该模板形参的缺省实参为 deque<\_Tp> 。
+
+	template <class _Tp, 
+		  class _Sequence __STL_DEPENDENT_DEFAULT_TMPL(deque<_Tp>) >
+	class queue;
+
+<div class="cut"></div>
+
+operator== 和 operator< 是两个全局的运算符重载函数，在文件的开始出先对其进行声明，在 queue 中将其设置为友元函数，因为函数中需要访问到 queue 的非公有成员。
+
+	template <class _Tp, class _Seq>
+	inline bool operator==(const queue<_Tp, _Seq>&, const queue<_Tp, _Seq>&);
+
+	template <class _Tp, class _Seq>
+	inline bool operator<(const queue<_Tp, _Seq>&, const queue<_Tp, _Seq>&);
+
+<div class="cut"></div>
+
+queue 的定义中有四条类型检测语句，第一条语句要求类型 \_Tp 是能够被赋值的。第二条语句要求能在底层容器 \_Sequence 的前面插入元素(一般调用 push\_front 函数)。第三条语句要求能在底层容器 \_Sequence 之后插入元素(一般调用 push\_back 函数)。第四句定义了一个成员类型 \_Sequence\_value\_type ，其为 \_Sequence 中的成员类型 value\_type 的类型别名。第五句要求\_Tp 和  \_Sequence\_value\_type 的类型一致。因为 \_Sequence\_value\_type 为 \_Sequence 中存储的元素类型，queue 中的 \_Tp 类型的元素又都存储在 \_Sequence 类型的底层容器中，故二者类型要求一致。
+
+	  __STL_CLASS_REQUIRES(_Tp, _Assignable);
+	  __STL_CLASS_REQUIRES(_Sequence, _FrontInsertionSequence);
+	  __STL_CLASS_REQUIRES(_Sequence, _BackInsertionSequence);
+	  typedef typename _Sequence::value_type _Sequence_value_type;
+	  __STL_CLASS_REQUIRES_SAME_TYPE(_Tp, _Sequence_value_type);
+
+<div class="cut"></div>
+
+将关系运算符重载函数 operator== 和 operator< 设置为 queue 的友元函数。
+
+	  template <class _Tp1, class _Seq1>
+	  friend bool operator== (const queue<_Tp1, _Seq1>&,
+				  const queue<_Tp1, _Seq1>&);
+	  template <class _Tp1, class _Seq1>
+	  friend bool operator< (const queue<_Tp1, _Seq1>&,
+				 const queue<_Tp1, _Seq1>&);
+
+<div class="cut"></div>
+
+queue 内部定义了一些成员类型。 其中 vlaue\_type 为 \_Sequence::value\_type 的类型别名(value\_type 和 \_Tp 的类型一致)。size\_type 为 \_Sequence::size\_type 的类型别名。container\_type 为 \_Sequence 的类型别名。 reference 为 \_Sequence::reference 的类型别名 \_Sequence::const\_reference 的类型别名。
+
+	  typedef typename _Sequence::value_type      value_type;
+	  typedef typename _Sequence::size_type       size_type;
+	  typedef          _Sequence                  container_type;
+
+	  typedef typename _Sequence::reference       reference;
+	  typedef typename _Sequence::const_reference const_reference;
+
+<div class="cut"></div>
+
+queue 中定义了一个 \_Sequence 类型的变量 c，c 用来存储 queue 中的元素。
+
+	  _Sequence c;
+
+<div class="cut"></div>
+
+queue 中有两个构造函数，第一个为空构造函数，在初始化列表中初始化了成员变量 c ，这要求 \_Sequence 中有空构造函数。第二个构造函数用一个指定的 \_Sequence 类型的实例来初始化成员变量 c ，这要求 \_Sequence 中有拷贝构造函数。
+
+	  queue() : c() {}
+	  explicit queue(const _Sequence& __c) : c(__c) {}
+
+<div class="cut"></div>
+
+empty() 函数判断当前 queue 是否为空，返回 c.empty() 。size() 函数用来获取当前 queue 中的元素个数，返回 c.size()。
+
+	  bool empty() const { return c.empty(); }
+	  size_type size() const { return c.size(); }
+
+<div class="cut"></div>
+
+front() 函数用来获取当前 queue 的头部元素，返回 c.front() 。back() 函数用来获取当前 queue 中的尾部元素，返回 c.back()。
+
+	  reference front() { return c.front(); }
+	  reference back() { return c.back(); }
+
+<div class="cut"></div>
+
+push 函数用于在当前 queue 的尾部插入一个新元素。调用 c.push\_back() 实现，pop 函数用于弹出当前 queue 的头部元素，调用 c.pop\_front() 实现。
+
+	  void push(const value_type& __x) { c.push_back(__x); }
+	  void pop() { c.pop_front(); }
+
+<div class="cut"></div>
+
+operator== 函数用于判断给定的两个 queue 是否相等。将 \_\_x.c  和 \_\_y.c 作为实参调用 operator== (\_Sequence&, \_Sequence&) 来判断。
+
+	template <class _Tp, class _Sequence>
+	bool 
+	operator==(const queue<_Tp, _Sequence>& __x, const queue<_Tp, _Sequence>& __y)
+	{
+	  return __x.c == __y.c;
+	}
+
+<div class="cut"></div>
+
+operator< 函数用于比较给定的两个 queue 的大小，将 \_\_x.c 和 \_\_y.c 作为实参调用 operator< (\_Sequence&, \_Sequence&) 来判断。
+
+	template <class _Tp, class _Sequence>
+	bool
+	operator<(const queue<_Tp, _Sequence>& __x, const queue<_Tp, _Sequence>& __y)
+	{
+	  return __x.c < __y.c;
+	}

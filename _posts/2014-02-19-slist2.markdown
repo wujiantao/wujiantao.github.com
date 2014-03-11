@@ -1,0 +1,235 @@
+---
+title: STL 的 slist 分析（二）
+layout: post
+key: 4a20e940-7db1-4699-9c6d-294915b04548
+tags:
+  -slist 
+  -STL
+---
+
+####类模板 \_Slist\_alloc\_base####
+
+\_Slist\_alloc\_base 用来为链表中的节点分配内存。模板形参中的 \_Tp 用来实例化 \_Slist\_node<\_Tp> ，\_Tp 是 \_Slist\_node<\_Tp> 中 \_M\_data 的类型。\_Allocator 为内存分配器，通过 \_Alloc\_traits 使它为 \_Slist\_node<\_Tp> 类型的变量分配内存。\_IsStatic 用来表示 \_Allocator 的不同实例是否存储区别。
+
+<div class="cut"></div>
+
+\_Slist\_alloc\_base 的默认定义中会声明一个 \_Alloc\_traits<\_Slist\_node<\_Tp>, \_Allocator>::allocator\_type 类型的成员变量 \_M\_node\_allocator。该成员变量为 \_Slist\_node<\_Tp> 类型的变量分配内存。
+
+<div class="cut"></div>
+
+\_M\_get\_node 函数通过 \_M\_node\_allocator 的 allocate 函数分配一个 \_Slist\_node<\_Tp> 对象所需的内存空间，并且将分配的空间的首地址作为返回值返回。函数 \_M\_put\_node 用来将 \_M\_get\_node 申请的某个节点的空间释放，需要提供一个内存空间的首地址来确定需要释放那一片内存空间，释放的大小由类型 \_Slist\_node<\_Tp> 可以确定。
+
+\_Slist\_alloc\_base 中还定义了一个成员变量 \_M\_head 用来表示链表头。
+
+	template <class _Tp, class _Allocator, bool _IsStatic>
+	class _Slist_alloc_base {
+	public:
+	  typedef typename _Alloc_traits<_Tp,_Allocator>::allocator_type
+		  allocator_type;
+	  allocator_type get_allocator() const { return _M_node_allocator; }
+
+	  _Slist_alloc_base(const allocator_type& __a) : _M_node_allocator(__a) {}
+
+	protected:
+	  _Slist_node<_Tp>* _M_get_node() 
+	    { return _M_node_allocator.allocate(1); }
+	  void _M_put_node(_Slist_node<_Tp>* __p) 
+	    { _M_node_allocator.deallocate(__p, 1); }
+
+	protected:
+	  typename _Alloc_traits<_Slist_node<_Tp>,_Allocator>::allocator_type
+		   _M_node_allocator;
+	  _Slist_node_base _M_head;
+	};
+
+<div class="cut"></div>
+
+\_Slist\_alloc\_base 有一个偏特化定义，当第三个模板实参为 true 时使用如下定义，这个定义中所有的内存分配和回收都是通过 \_Alloc\_type 的静态成员函数来进行。\_Alloc\_type 为 \_Alloc\_traits<\_Slist\_node<\_Tp>, \_Allocator>::\_Alloc\_type 类型的类型别名。
+
+	template <class _Tp, class _Allocator>
+	class _Slist_alloc_base<_Tp,_Allocator, true> {
+	public:
+	  typedef typename _Alloc_traits<_Tp,_Allocator>::allocator_type
+		  allocator_type;
+	  allocator_type get_allocator() const { return allocator_type(); }
+
+	  _Slist_alloc_base(const allocator_type&) {}
+
+	protected:
+	  typedef typename _Alloc_traits<_Slist_node<_Tp>, _Allocator>::_Alloc_type
+		  _Alloc_type;
+	  _Slist_node<_Tp>* _M_get_node() { return _Alloc_type::allocate(1); }
+	  void _M_put_node(_Slist_node<_Tp>* __p) { _Alloc_type::deallocate(__p, 1); }
+
+	protected:
+	  _Slist_node_base _M_head;
+	};
+
+####类模板 \_Slist\_base####
+
+\_Slist\_base 继承自基类 \_Slist\_alloc\_base<\_Tp, \_Alloc, \_Alloc\_traits<\_Tp, \_Alloc>::\_S\_instanceless> 。其中 \_Tp 和 \_Alloc 为模板形参。\_Alloc\_traits<\_Tp, \_Alloc>::\_S\_instanceless 的取值由实例化该类模板的实参 \_Tp 和 \_Alloc 决定。
+
+	template <class _Tp, class _Alloc>
+	struct _Slist_base
+	  : public _Slist_alloc_base<_Tp, _Alloc,
+				     _Alloc_traits<_Tp, _Alloc>::_S_instanceless>
+
+<div class="cut"></div>
+
+定义了一个基类的类型别名 \_Base ，构造函数要有一个基类 \_Base 的 allocator\_type 类型的形参，并在函数体内对 \_M\_head 进行了初始化。
+
+	  typedef _Slist_alloc_base<_Tp, _Alloc,
+				    _Alloc_traits<_Tp, _Alloc>::_S_instanceless>
+		  _Base;
+
+<div class="cut"></div>
+
+析构函数会调用 \_M\_erase\_after 函数释放所有的节点。
+
+	  ~_Slist_base() { _M_erase_after(&this->_M_head, 0); }
+
+<div class="cut"></div>
+
+\_M\_erase\_after 函数将指定位置 \_\_pos 之后的一个节点删除。
+
+	  _Slist_node_base* _M_erase_after(_Slist_node_base* __pos)
+	  {
+	    _Slist_node<_Tp>* __next = (_Slist_node<_Tp>*) (__pos->_M_next);
+	    _Slist_node_base* __next_next = __next->_M_next;
+	    __pos->_M_next = __next_next;
+	    destroy(&__next->_M_data);
+	    _M_put_node(__next);
+	    return __next_next;
+	  }
+
+	{
+	  typedef typename _Base::allocator_type allocator_type;
+
+	  _Slist_base(const allocator_type& __a)
+	    : _Base(__a) { this->_M_head._M_next = 0; }
+	  ~_Slist_base() { _M_erase_after(&this->_M_head, 0); }
+
+	protected:
+
+	  _Slist_node_base* _M_erase_after(_Slist_node_base*, _Slist_node_base*);
+	};
+
+<div class="cut"></div>
+
+\_M\_erase\_after 函数将从 \_\_before\_first 下一个元素开始到 \_\_last\_node(不包括 \_\_last\_node 所在位置) 之间的元素都删除。删除节点的同时调用 \_M\_put\_node 将已删除节点的空间释放。
+
+	template <class _Tp, class _Alloc> 
+	_Slist_node_base*
+	_Slist_base<_Tp,_Alloc>::_M_erase_after(_Slist_node_base* __before_first,
+						_Slist_node_base* __last_node) {
+	  _Slist_node<_Tp>* __cur = (_Slist_node<_Tp>*) (__before_first->_M_next);
+	  while (__cur != __last_node) {
+	    _Slist_node<_Tp>* __tmp = __cur;
+	    __cur = (_Slist_node<_Tp>*) __cur->_M_next;
+	    destroy(&__tmp->_M_data);
+	    _M_put_node(__tmp);
+	  }
+	  __before_first->_M_next = __last_node;
+	  return __last_node;
+	}
+
+<div class="cut"></div>
+
+####类模板 slist####
+
+slist 私有继承了 slist\_base<\_Tp, \_Alloc> 类，slist\_base<\_Tp, \_Alloc> 类中的成员都是保护属性或者公有属性的，因此这些成员在 slist 中都是可见的，但都是 slist 的私有成员，对外不可见的。模板形参 \_Tp 用来表示链表节点中存储的数据的类型， \_Alloc 是一个表示内存分配器，其缺省实参为 allocate<\_Tp>
+
+	template <class _Tp, class _Alloc = __STL_DEFAULT_ALLOCATOR(_Tp) >
+	class slist : private _Slist_base<_Tp,_Alloc>
+	{
+
+<div class="cut"></div>
+
+在 slist 中定义了一系列的成员类型，可能需要在 slist 之外被使用的其属性为 public，如 value\_type, iterator 等。一些只在当前类中使用的成员类型，属性被设置为了 private , 如 \_Base, \_Node 等等。
+
+	private:
+	  typedef _Slist_base<_Tp,_Alloc> _Base;
+	public:
+	  typedef _Tp                value_type;
+	  typedef value_type*       pointer;
+	  typedef const value_type* const_pointer;
+	  typedef value_type&       reference;
+	  typedef const value_type& const_reference;
+	  typedef size_t            size_type;
+	  typedef ptrdiff_t         difference_type;
+
+	  typedef _Slist_iterator<_Tp, _Tp&, _Tp*>             iterator;
+	  typedef _Slist_iterator<_Tp, const _Tp&, const _Tp*> const_iterator;
+
+	  typedef typename _Base::allocator_type allocator_type;
+	  allocator_type get_allocator() const { return _Base::get_allocator(); }
+
+	private:
+	  typedef _Slist_node<_Tp>      _Node;
+	  typedef _Slist_node_base      _Node_base;
+	  typedef _Slist_iterator_base  _Iterator_base;
+
+<div class="cut"></div>
+
+\_M\_create\_node 函数通过给定的数据来构造一个可以插入到链表中的新节点，首先调用基类的 \_M\_get\_node() 申请一个链表节点所需要的空间。然后在已申请的空间中存放数据的位置上调用 construct 构造数据。并将节点的后向指针 \_M\_next 置为空指针。
+
+	  _Node* _M_create_node(const value_type& __x) {
+	    _Node* __node = this->_M_get_node();
+	    __STL_TRY {
+	      construct(&__node->_M_data, __x);
+	      __node->_M_next = 0;
+	    }
+	    __STL_UNWIND(this->_M_put_node(__node));
+	    return __node;
+	  }
+
+<div class="cut"></div>
+
+\_M\_create\_node 函数用默认值来构造一个 Slist 的新节点。
+
+	  _Node* _M_create_node() {
+	    _Node* __node = this->_M_get_node();
+	    __STL_TRY {
+	      construct(&__node->_M_data);
+	      __node->_M_next = 0;
+	    }
+	    __STL_UNWIND(this->_M_put_node(__node));
+	    return __node;
+	  }
+
+<div class="cut"></div>
+
+构造函数中，第一个用一个 allocator\_type 的实例初始化基类。第二个构造函数要求在初始化时在链表中插入 \_\_n 个节点数据为 \_\_x 的新节点。第三个构造函数要求在构造函数初始化时在链表中插入 \_\_n 个节点数据为默认值的新节点。\_M\_insert\_fill 函数的定义后面的部分进行介绍。
+
+	  explicit slist(const allocator_type& __a = allocator_type()) : _Base(__a) {}
+
+	  slist(size_type __n, const value_type& __x,
+		const allocator_type& __a =  allocator_type()) : _Base(__a)
+	    { _M_insert_after_fill(&this->_M_head, __n, __x); }
+
+	  explicit slist(size_type __n) : _Base(allocator_type())
+	    { _M_insert_after_fill(&this->_M_head, __n, value_type()); }
+
+<div class="cut"></div>
+
+构造函数是将 \_\_first 到 \_\_last 之间的内容作为节点数据来为当前 list 构造节点。通过调用 \_M\_insert\_after\_range 函数来实现。
+
+	  template <class _InputIterator>
+	  slist(_InputIterator __first, _InputIterator __last,
+		const allocator_type& __a =  allocator_type()) : _Base(__a)
+	    { _M_insert_after_range(&this->_M_head, __first, __last); }
+
+<div class="cut"></div>
+
+拷贝构造函数，将 x 中的节点数据拷贝到当前 slist 中。这里 \_\_x 是 slist<\_Tp, \_Alloc> 的一个实例。
+
+	  slist(const slist& __x) : _Base(__x.get_allocator())
+	    { _M_insert_after_range(&this->_M_head, __x.begin(), __x.end()); }
+
+<div class="cut"></div>
+
+[STL 的 slist 分析（一）](../19/slist1.html)</br>
+[STL 的 slist 分析（二）](../19/slist2.html)</br>
+[STL 的 slist 分析（三）](../19/slist3.html)</br>
+[STL 的 slist 分析（四）](../19/slist4.html)</br>
+[STL 的 slist 分析（五）](../19/slist5.html)</br>

@@ -1,0 +1,375 @@
+---
+title: STL 的 string 分析（六）
+layout: post
+key: c04e91d0-f55b-4670-ac88-3c7f042226dd
+tags:
+  -string 
+  -STL 
+---
+
+函数 find\_last\_not\_of 用来查找当前 basic\_string 中从 \_\_pos 往前的位置上第一次出现不属于 \_\_s 到 \_\_s + n 中的元素的位置。函数通过设置 reverse\_iterator 将迭代器迭代顺序变为从后往前，然后类似于 find\_first\_of 中查找那样调用 find\_if 查找 \_\_pos(不包括 \_\_pos 所在位置)往前第一次碰到不属于 \_\_s 到 \_\_s + n 中的元素的位置。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	basic_string<_CharT,_Traits,_Alloc>::size_type
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::find_last_not_of(const _CharT* __s, size_type __pos, size_type __n) const 
+	{
+
+	  const size_type __len = size();
+
+	  if (__len < 1)
+	    return npos;
+	  else {
+	    const const_iterator __last = begin() + min(__len - 1, __pos) + 1;
+	    const const_reverse_iterator __rresult =
+	      find_if(const_reverse_iterator(__last), rend(),
+		      _Not_within_traits<_Traits>(__s, __s + __n));
+	    return __rresult != rend() ? (__rresult.base() - 1) - begin() : npos;
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 find\_last\_not\_of 用来查找当前 basic\_string 中 \_\_pos 往前第一次出现不为 \_\_c 的元素。函数通过设置 reverse\_iterator 将迭代器的迭代顺序变成从后往前。然后类似与 find\_first\_not\_of 中那样调用 find\_if 进行查找。
+
+	template <class _Tp, class _Traits, class _Alloc>
+	basic_string<_Tp, _Traits, _Alloc>::size_type
+	basic_string<_Tp, _Traits, _Alloc>
+	  ::find_last_not_of(_Tp __c, size_type __pos) const 
+	{
+	  const size_type __len = size();
+
+	  if (__len < 1)
+	    return npos;
+	  else {
+	    const const_iterator __last = begin() + min(__len - 1, __pos) + 1;
+	    const_reverse_iterator __rresult =
+	      find_if(const_reverse_iterator(__last), rend(),
+		      not1(bind2nd(_Eq_traits<_Traits>(), __c)));
+	    return __rresult != rend() ? (__rresult.base() - 1) - begin() : npos;
+	  }
+	}
+	
+<div class="cut"></div>
+
+函数 find\_last\_not\_of 用来查找当前 basic\_string 中 \_\_pos 往前的位置中第一次出现不是 \_\_s 中的元素的位置。调用之前定义的 find\_last\_not\_of 进行查找。
+
+	  size_type find_last_not_of(const basic_string& __s, 
+				     size_type __pos = npos) const
+	    { return find_last_not_of(__s.begin(), __pos, __s.size()); }
+
+<div class="cut"></div>
+
+函数 find\_last\_not\_of 用来查找当前 basic\_string 中 \_\_pos 往前的位置中第一次出现不是 \_\_s 中的元素的位置。
+
+	  size_type find_last_not_of(const _CharT* __s, size_type __pos = npos) const
+	    { return find_last_not_of(__s, __pos, _Traits::length(__s)); }
+
+<div class="cut"></div>
+
+函数 substr 返回由当前 basic\_string 中 \_\_pos 所在位置往后的 \_\_n 个元素组成的序列构成的 basic\_string 实例。
+
+	  basic_string substr(size_type __pos = 0, size_type __n = npos) const {
+	    if (__pos > size())
+	      _M_throw_out_of_range();
+	    return basic_string(_M_start + __pos, 
+				_M_start + __pos + min(__n, size() - __pos));
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_compare 用来比较从 \_\_f1 到 \_\_l1 的元素序列和从 \_\_f2 到 \_\_l2 的序列。令 \_\_f1 到 \_\_l1 的长度为 \_\_n1 ，令 \_\_f2 到 \_\_l2 的长度为 \_\_n2 ，然后调用 \_Traits 中的静态成员函数 compare 比较从 \_\_f1 和 \_\_f2 往后的 min(\_\_n1, \_\_n2) 个元素，返回值暂存到 cmp ，如果 cmp 不为 0 ,说明前 min(\_\_n1, \_\_n2) 个元素就可以比较出以上两个序列的大小，如果 cmp 为 0 ，则当 \_\_n1 < \_\_n2 是返回 -1 ，否则如果 \_\_n1 > \_\_n2 返回 1。如果 \_\_n1 == \_\_n2 则返回 0 。
+
+	  static int _M_compare(const _CharT* __f1, const _CharT* __l1,
+				const _CharT* __f2, const _CharT* __l2) {
+	    const ptrdiff_t __n1 = __l1 - __f1;
+	    const ptrdiff_t __n2 = __l2 - __f2;
+	    const int cmp = _Traits::compare(__f1, __f2, min(__n1, __n2));
+	    return cmp != 0 ? cmp : (__n1 < __n2 ? -1 : (__n1 > __n2 ? 1 : 0));
+	  }
+
+<div class="cut"></div>
+
+函数 compare 用来比较当前 basic\_string 和给定 basic\_string 的大小。
+
+	  int compare(const basic_string& __s) const 
+	    { return _M_compare(_M_start, _M_finish, __s._M_start, __s._M_finish); }
+
+<div class="cut"></div>
+
+函数 compare 用来比较当前 basic\_string 中 \_\_pos1 往后 \_\_n1 个元素序列和给定 basic\_string \_\_s 的大小。
+
+	  int compare(size_type __pos1, size_type __n1,
+		      const basic_string& __s) const {
+	    if (__pos1 > size())
+	      _M_throw_out_of_range();
+	    return _M_compare(_M_start + __pos1, 
+			      _M_start + __pos1 + min(__n1, size() - __pos1),
+			      __s._M_start, __s._M_finish);
+	  }
+
+<div class="cut"></div>
+
+函数 compare 用来比较当前 basic\_string 中 \_\_pos1 往后 \_\_n1 个元素组成的序列和给定 basic\_string \_\_s 中 \_\_pos2 往后 \_\_n2 个元素组成的序列的大小。
+
+	  int compare(size_type __pos1, size_type __n1,
+		      const basic_string& __s,
+		      size_type __pos2, size_type __n2) const {
+	    if (__pos1 > size() || __pos2 > __s.size())
+	      _M_throw_out_of_range();
+	    return _M_compare(_M_start + __pos1, 
+			      _M_start + __pos1 + min(__n1, size() - __pos1),
+			      __s._M_start + __pos2, 
+			      __s._M_start + __pos2 + min(__n2, size() - __pos2));
+	  }
+
+<div class="cut"></div>
+
+函数 compare 用来比较当前 basic\_string 和 \_\_s 的大小。
+
+	  int compare(const _CharT* __s) const {
+	    return _M_compare(_M_start, _M_finish, __s, __s + _Traits::length(__s));
+	  }
+
+<div class="cut"></div>
+
+函数 compare 用来比较当前 basic\_string 中 \_\_pos1 往后的 \_\_n1 个元素组成的序列和 \_\_s 的大小。
+
+	  int compare(size_type __pos1, size_type __n1, const _CharT* __s) const {
+	    if (__pos1 > size())
+	      _M_throw_out_of_range();
+	    return _M_compare(_M_start + __pos1, 
+			      _M_start + __pos1 + min(__n1, size() - __pos1),
+			      __s, __s + _Traits::length(__s));
+	  }
+
+<div class="cut"></div>
+
+函数 compare 用来比较当前 basic\_string 中 \_\_pos1 所在位置往后 \_\_n1 个元素组成的序列和 \_\_s 所在位置往后 \_\_n2 个元素组成的序列的大小。
+
+	  int compare(size_type __pos1, size_type __n1, const _CharT* __s,
+		      size_type __n2) const {
+	    if (__pos1 > size())
+	      _M_throw_out_of_range();
+	    return _M_compare(_M_start + __pos1, 
+			      _M_start + __pos1 + min(__n1, size() - __pos1),
+			      __s, __s + __n2);
+	  }
+
+<div class="cut"></div>
+
+函数 operator+ 返回两个 basic\_string \_\_x 和 \_\_y 前后拼接而成的 basic\_string 实例。函数中先声明一个 basic\_string 的实例 \_\_result，并在构造函数中申请了足够容纳 \_\_x 和 \_\_y 中所有元素的空间，然后将 \_\_x 插入到 \_\_result 尾部，再将 \_\_y 插入到 \_\_result 尾部。函数中没有直接用 \_\_x 的内容来初始化 \_\_result ，是因为那样要进行两次内存的分配，而且其中进行第二次分配是还涉及到元素的移动。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	inline basic_string<_CharT,_Traits,_Alloc>
+	operator+(const basic_string<_CharT,_Traits,_Alloc>& __x,
+		  const basic_string<_CharT,_Traits,_Alloc>& __y)
+	{
+	  typedef basic_string<_CharT,_Traits,_Alloc> _Str;
+	  typedef typename _Str::_Reserve_t _Reserve_t;
+	  _Reserve_t __reserve;
+	  _Str __result(__reserve, __x.size() + __y.size(), __x.get_allocator());
+	  __result.append(__x);
+	  __result.append(__y);
+	  return __result;
+	}
+
+<div class="cut"></div>
+
+函数 operator+ 将 \_\_s 开始到结束标记所在位置之间的内容和 basic\_string \_\_y 中的内容进行拼接，并将拼接而成的内容作为返回值。首先声明一个 basic\_string 的实例，并在 \_\_result 中预留足够容纳 \_\_s 和 \_\_y 的空间。再将 \_\_s 中的内容插入到 \_\_reuslt 尾部，接着将 \_\_y 中的内容插入到 \_\_result 尾部。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	inline basic_string<_CharT,_Traits,_Alloc>
+	operator+(const _CharT* __s,
+		  const basic_string<_CharT,_Traits,_Alloc>& __y) {
+	  typedef basic_string<_CharT,_Traits,_Alloc> _Str;
+	  typedef typename _Str::_Reserve_t _Reserve_t;
+	  _Reserve_t __reserve;
+	  const size_t __n = _Traits::length(__s);
+	  _Str __result(__reserve, __n + __y.size());
+	  __result.append(__s, __s + __n);
+	  __result.append(__y);
+	  return __result;
+	}
+
+<div class="cut"></div>
+
+函数 operator+ 将元素 \_\_c 和 basic\_string \_\_y 中的内容进行前后拼接，并将拼接得到的 basic\_string 的实例作为返回值返回。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	inline basic_string<_CharT,_Traits,_Alloc>
+	operator+(_CharT __c,
+		  const basic_string<_CharT,_Traits,_Alloc>& __y) {
+	  typedef basic_string<_CharT,_Traits,_Alloc> _Str;
+	  typedef typename _Str::_Reserve_t _Reserve_t;
+	  _Reserve_t __reserve;
+	  _Str __result(__reserve, 1 + __y.size());
+	  __result.push_back(__c);
+	  __result.append(__y);
+	  return __result;
+	}
+
+<div class="cut"></div>
+
+函数 operator+ 将 basic\_string \_\_x 和从 \_\_s 开始到结束标记所在位置之间的内容进行拼接，并将拼接而成的 basic\_string 实例作为返回值返回。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	inline basic_string<_CharT,_Traits,_Alloc>
+	operator+(const basic_string<_CharT,_Traits,_Alloc>& __x,
+		  const _CharT* __s) {
+	  typedef basic_string<_CharT,_Traits,_Alloc> _Str;
+	  typedef typename _Str::_Reserve_t _Reserve_t;
+	  _Reserve_t __reserve;
+	  const size_t __n = _Traits::length(__s);
+	  _Str __result(__reserve, __x.size() + __n, __x.get_allocator());
+	  __result.append(__x);
+	  __result.append(__s, __s + __n);
+	  return __result;
+	}
+
+<div class="cut"></div>
+
+函数 operator+ 将 basic\_string \_\_x 和元素 \_\_c 进行拼接，并将拼接而成的 basic\_string 的实例作为返回值返回。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	inline basic_string<_CharT,_Traits,_Alloc>
+	operator+(const basic_string<_CharT,_Traits,_Alloc>& __x,
+		  const _CharT __c) {
+	  typedef basic_string<_CharT,_Traits,_Alloc> _Str;
+	  typedef typename _Str::_Reserve_t _Reserve_t;
+	  _Reserve_t __reserve;
+	  _Str __result(__reserve, __x.size() + 1, __x.get_allocator());
+	  __result.append(__x);
+	  __result.push_back(__c);
+	  return __result;
+	}
+
+<div class="cut"></div>
+
+函数 operator== 判断两个 basic\_string \_\_x 和 \_\_y 是否相等。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	inline bool
+	operator==(const basic_string<_CharT,_Traits,_Alloc>& __x,
+		   const basic_string<_CharT,_Traits,_Alloc>& __y) {
+	  return __x.size() == __y.size() &&
+		 _Traits::compare(__x.data(), __y.data(), __x.size()) == 0;
+	}
+	
+<div class="cut"></div>
+
+函数 operator== 判断从 \_\_s 开始到结束标记所在位置之间的内容和 basic\_string \_\_y 是否相等。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	inline bool
+	operator==(const _CharT* __s,
+		   const basic_string<_CharT,_Traits,_Alloc>& __y) {
+	  size_t __n = _Traits::length(__s);
+	  return __n == __y.size() && _Traits::compare(__s, __y.data(), __n) == 0;
+	}
+
+<div class="cut"></div>
+
+函数 operator== 判断 basic\_string 和从 \_\_s 开始到结束标记所在位置之间的内容是否相等。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	inline bool
+	operator==(const basic_string<_CharT,_Traits,_Alloc>& __x,
+		   const _CharT* __s) {
+	  size_t __n = _Traits::length(__s);
+	  return __x.size() == __n && _Traits::compare(__x.data(), __s, __n) == 0;
+	}
+
+<div class="cut"></div>
+
+函数 operator< 判断 basic\_string \_\_x 是否小于 basic\_string \_\_y 。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	inline bool
+	operator<(const basic_string<_CharT,_Traits,_Alloc>& __x,
+		  const basic_string<_CharT,_Traits,_Alloc>& __y) {
+	  return basic_string<_CharT,_Traits,_Alloc>
+	    ::_M_compare(__x.begin(), __x.end(), __y.begin(), __y.end()) < 0;
+	}
+
+<div class="cut"></div>
+
+函数 operator< 判断从 \_\_s 开始到结束标记所在位置之间的内容是否小于 basic\_string \_\_y 。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	inline bool
+	operator<(const _CharT* __s,
+		  const basic_string<_CharT,_Traits,_Alloc>& __y) {
+	  size_t __n = _Traits::length(__s);
+	  return basic_string<_CharT,_Traits,_Alloc>
+	    ::_M_compare(__s, __s + __n, __y.begin(), __y.end()) < 0;
+	}
+
+<div class="cut"></div>
+
+函数 operator< 判断 basic\_string \_\_x 是否小于从 \_\_s 开始到结束标记所在位置之间的内容。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	inline bool
+	operator<(const basic_string<_CharT,_Traits,_Alloc>& __x,
+		  const _CharT* __s) {
+	  size_t __n = _Traits::length(__s);
+	  return basic_string<_CharT,_Traits,_Alloc>
+	    ::_M_compare(__x.begin(), __x.end(), __s, __s + __n) < 0;
+	}
+
+<div class="cut"></div>
+
+string 文件中还重载了 operator<< 和 operator>> ，并定义了 getline 函数。其中 operator>> 用输入流中的内容来更新指定的 basic\_string 实例。 operator<< 用输出流将指定的 basic\_string 实例中的内容输出。getline 函数用指定的输入流中的内容更新指定的 basic\_string 实例。
+
+
+<div class="cut"></div>
+
+函数 \_S\_string\_copy 将指定 basic\_string 中的前 \_\_n 个元素复制到 \_\_buf 开始的位置。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	void _S_string_copy(const basic_string<_CharT,_Traits,_Alloc>& __s,
+			    _CharT* __buf,
+			    size_t __n)
+	{
+	  if (__n > 0) {
+	    __n = min(__n - 1, __s.size());
+	    copy(__s.begin(), __s.begin() + __n, __buf);
+	    _Traits::assign(__buf[__n],
+			    basic_string<_CharT,_Traits,_Alloc>::_M_null());
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 \_\_stl\_string\_hash 用来获取指定 basic\_string 的 hash 值。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	size_t __stl_string_hash(const basic_string<_CharT,_Traits,_Alloc>& __s) {
+	  unsigned long __h = 0;
+	  for (basic_string<_CharT,_Traits,_Alloc>::const_iterator __i = __s.begin();
+	       __i != __s.end();
+	       ++__i)
+	    __h = 5*__h + *__i;
+	  return size_t(__h);
+	}
+
+<div class="cut"></div>
+
+hash 可以看成一个函数对象，它的实例的 operator() 函数可以用来获取指定 basic\_string 的 hash 值。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	struct hash<basic_string<_CharT,_Traits,_Alloc> > {
+	  size_t operator()(const basic_string<_CharT,_Traits,_Alloc>& __s) const
+	    { return __stl_string_hash(__s); }
+	};
+
+
+<div class="cut"></div>
+
+[STL 的 string 分析（一）](../02/string1.html)</br>
+[STL 的 string 分析（二）](../02/string2.html)</br>
+[STL 的 string 分析（三）](../02/string3.html)</br>
+[STL 的 string 分析（四）](../02/string4.html)</br>
+[STL 的 string 分析（五）](../02/string5.html)</br>
+[STL 的 string 分析（六）](../02/string6.html)</br>

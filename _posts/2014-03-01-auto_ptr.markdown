@@ -1,0 +1,115 @@
+---
+title: STL 的 auto_ptr 分析
+layout: post
+key: 09556186-20ae-4bc3-ab8e-54412b7d6a45
+tags:
+  -auto_ptr 
+  -STL
+---
+auto\_ptr 定义在 memory 中，它可以看成一个智能指针，通常为指针申请空间之后需要用户在适当的位置手动的去释放申请的空间，但如果在为指针申请空间的时候用一个 auto\_ptr 实例与其进行关联，那么在 auto\_ptr 退出作用域时会自动调用 auto\_ptr 的析构函数对关联的指针所申请的内存进行释放。
+
+ 但如果当前希望当前作用域中申请的空间在其他的作用域中还能被使用(一个最常见的例子就是当前函数中动态申请了一片内存空间，但希望退出函数之后该内存空间还能继续，那么是不应该使用 auto\_ptr的。
+
+<div class="cut"></div>
+
+auto\_ptr 是一个类模板，模板形参 \_Tp 表示所关联的指针类型。
+
+	template <class _Tp> class auto_ptr {
+
+<div class="cut"></div>
+
+类中定义了一个 \_Tp 类型的指针 \_M\_ptr 用来和给定指针进行关联。
+
+	private:
+	  _Tp* _M_ptr;
+
+<div class="cut"></div>
+
+定义了一个成员类型 element\_type，其为 \_Tp 的类型别名。
+
+	typedef _Tp element_type;
+
+<div class="cut"></div>
+
+auto\_ptr 中一共定义了两个构造函数，第一个构造函数中用给定指针初始化成员变量 \_M\_ptr，将当 auto\_ptr 和给定指针进行关联。
+
+第二个构造函数用给定的 auto\_ptr 实例 \_\_a 来初始化当前类，release 函数中解除 \_\_a 和其关联指针的关联关系(使得 \_\_a 退出时不会删除其关联指针原先指向的内容)，然后将 \_\_a 原先关联的指针作为返回值返回，使得当前 auto\_ptr 与其进行关联。
+
+	  explicit auto_ptr(_Tp* __p = 0) __STL_NOTHROW : _M_ptr(__p) {}
+	  auto_ptr(auto_ptr& __a) __STL_NOTHROW : _M_ptr(__a.release()) {}
+
+<div class="cut"></div>
+
+第三个构造函数中用给定的 auto\_ptr 的实例来初始化当前 auto\_ptr ，当该实例关联的指针类型和当前 auto\_ptr 关联的指针类型不同。实现的方法与上面一致，也是让当前 auto\_ptr 关联 \_\_a 原先关联的指针。
+
+	  template <class _Tp1> auto_ptr(auto_ptr<_Tp1>& __a) __STL_NOTHROW
+	    : _M_ptr(__a.release()) {}
+
+<div class="cut"></div>
+
+函数 operator= 将给定 auto\_ptr 的实例赋值给当前 auto\_ptr，如果给定实例和当前 auto\_ptr 不是关联的同一指针，则先将当前 auto\_ptr 关联的指针指向的空间释放，然后让当前 auto\_ptr 关联 \_\_a 所关联的指针。并让 \_\_a 解除与其关联指针的关联关系。
+
+	  auto_ptr& operator=(auto_ptr& __a) __STL_NOTHROW {
+	    if (&__a != this) {
+	      delete _M_ptr;
+	      _M_ptr = __a.release();
+	    }
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+
+函数 operator= 将给定 auto\_ptr 的实例赋值给当前 auto\_ptr，当给定实例关联的指针类型和当前 auto\_ptr 关联的指针类型不一致。如果给定实例和当前 auto\_ptr 不是关联的同一指针，则先将当前 auto\_ptr 关联的指针指向的空间释放，然后让当前 auto\_ptr 关联 \_\_a 所关联的指针。并让 \_\_a 解除与其关联指针的关联关系。
+
+	  template <class _Tp1>
+	  auto_ptr& operator=(auto_ptr<_Tp1>& __a) __STL_NOTHROW {
+	    if (__a.get() != this->get()) {
+	      delete _M_ptr;
+	      _M_ptr = __a.release();
+	    }
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+析构函数对当前 auto\_ptr 关联的指针指向的空间(\_M\_ptr 指向的空间)进行释放。
+
+	  ~auto_ptr() { delete _M_ptr; }
+
+<div class="cut"></div>
+
+operator\* 函数返回 auto\_ptr 关联的指针指向的空间中存储的内容。
+
+	  _Tp& operator*() const __STL_NOTHROW {
+	    return *_M_ptr;
+	  }
+
+<div class="cut"></div>
+
+get 函数返回当前 auto\_ptr 关联的指针。
+
+	  _Tp* get() const __STL_NOTHROW {
+	    return _M_ptr;
+	  }
+
+<div class="cut"></div>
+
+函数 release 解除当前 auto\_ptr 与其关联的指针之间的关联关系。并返回其原先所关联的指针。
+
+	  _Tp* release() __STL_NOTHROW {
+	    _Tp* __tmp = _M_ptr;
+	    _M_ptr = 0;
+	    return __tmp;
+	  }
+
+<div class="cut"></div>
+
+函数 reset 让当前 auto\_ptr 重新关联一个新的指针。函数检测新指针和当前关联的指针是否为同一指针，如果不是，则删除原先关联的指针指向的空间，然后让当前 auto\_ptr 关联指定的新指针。
+
+	  void reset(_Tp* __p = 0) __STL_NOTHROW {
+	    if (__p != _M_ptr) {
+	      delete _M_ptr;
+	      _M_ptr = __p;
+	    }
+	  }

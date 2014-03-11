@@ -1,0 +1,208 @@
+---
+title: STL 的 set 分析
+layout: post
+key: 4b8fae3c-71bc-4537-8379-1ad346ec94e0
+tags:
+  -set
+  -STL
+---
+
+set 有三个模板形参，其中 \_Key 表示 set 中存储的关键值类型，\_Compare 是一个能对 set 中的两个关键值比较大小的函数对象，其缺省实参为 less<\_Key> 。\_Alloc 是用于 set 中的内存分配和回收的内存分配器，其缺省实参为 allocator<\_Key>
+
+	template <class _Key, class _Compare __STL_DEPENDENT_DEFAULT_TMPL(less<_Key>),
+		  class _Alloc = __STL_DEFAULT_ALLOCATOR(_Key) >
+	class set;
+
+<div class="cut"></div>
+
+在 set 中定义了一些成员类型。
+
+	public:
+	  typedef _Key     key_type;
+	  typedef _Key     value_type;
+	  typedef _Compare key_compare;
+	  typedef _Compare value_compare;
+
+<div class="cut"></div>
+
+定义了一个私有的成员类型 \_Rep\_type。其为类型 \_Rb\_tree<key\_type, value\_type, Identity<value\_type>, key\_compare, \_Alloc> 的类型别名，其中是 \_Identity<value\_type>内部重载了 value\_type& operator()(value\_type&)。函数的返回值为形参本身，set 中节点值本身就是关键字的值。同时还定义了一个 \_Rep\_type 类型的私有成员变量 \_M\_t。set 中的所有节点都存储在红黑树 \_M\_t 中。
+
+	private:
+	  typedef _Rb_tree<key_type, value_type, 
+			  _Identity<value_type>, key_compare, _Alloc> _Rep_type;
+	  _Rep_type _M_t;  // red-black tree representing set
+
+<div class="cut"></div>
+
+下列构造函数通过在初始化列表中用缺省值或者给定值对成员变量 \_M\_t 进行初始化。构造函数的函数体为空。
+
+	  set() : _M_t(_Compare(), allocator_type()) {}
+	  explicit set(const _Compare& __comp,
+		       const allocator_type& __a = allocator_type())
+	    : _M_t(__comp, __a) {}
+
+<div class="cut"></div>
+
+下列构造函数中先用 \_Compare 和 allocator\_type 的缺省值对 \_M\_t 进行初始化，谈后将 \_\_first 到 \_\_last 之间的内容插入到红黑树中。
+
+	  template <class _InputIterator>
+	  set(_InputIterator __first, _InputIterator __last)
+	    : _M_t(_Compare(), allocator_type())
+	    { _M_t.insert_unique(__first, __last); }
+
+<div class="cut"></div>
+
+构造函数中先用给定的值对 \_M\_t 进行初始化，然后将 \_\_first 到 \_\_last 之间的内容插入到红黑树中。
+
+	  template <class _InputIterator>
+	  set(_InputIterator __first, _InputIterator __last, const _Compare& __comp,
+	      const allocator_type& __a = allocator_type())
+	    : _M_t(__comp, __a) { _M_t.insert_unique(__first, __last); }
+
+<div class="cut"></div>
+
+拷贝构造函数中，用给定 set 中的红黑树来复制当前 set 中的红黑树。从而达到复制给定 set 的目的。
+
+	  set(const set<_Key,_Compare,_Alloc>& __x) : _M_t(__x._M_t) {}
+
+<div class="cut"></div>
+
+调用 \_Rep\_type 中的 operator= 来将给定 set 中的红黑树复制到当前 set 的红黑树中。达到复制 set 的目的。
+
+	  set<_Key,_Compare,_Alloc>& operator=(const set<_Key, _Compare, _Alloc>& __x)
+	  { 
+	    _M_t = __x._M_t; 
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+对于 set 中的 begin(), end(), size(), empty() 等函数，直接返回红黑树 _M_t 中的对应函数即可。
+
+	  iterator begin() const { return _M_t.begin(); }
+	  iterator end() const { return _M_t.end(); }
+	  bool empty() const { return _M_t.empty(); }
+	  size_type size() const { return _M_t.size(); }
+
+<div class="cut"></div>
+
+要交换两个 set ，直接交换存储其节点的红黑树即可。
+
+	  void swap(set<_Key,_Compare,_Alloc>& __x) { _M_t.swap(__x._M_t); }
+
+<div class="cut"></div>
+
+insert 函数用来在 set 中插入一个关键字为 \_\_x 的新节点。因为 set 中的元素要求都不相同，需要调用 \_M\_t 的 insert\_unique 函数。
+
+	  pair<iterator,bool> insert(const value_type& __x) { 
+	    pair<typename _Rep_type::iterator, bool> __p = _M_t.insert_unique(__x); 
+	    return pair<iterator, bool>(__p.first, __p.second);
+	  }
+
+<div class="cut"></div>
+
+insert 函数用来在给定位置插入一个关键字为 \_\_x 的新节点，直接在红黑树上的对应位置插入该新节点即可。
+
+	  iterator insert(iterator __position, const value_type& __x) {
+	    typedef typename _Rep_type::iterator _Rep_iterator;
+	    return _M_t.insert_unique((_Rep_iterator&)__position, __x);
+	  }
+
+<div class="cut"></div>
+
+insert 函数用来将 \_\_first 到 \_\_last 之间的没人插入到 set 中，也是直接插入到红黑树中即可。
+
+	  template <class _InputIterator>
+	  void insert(_InputIterator __first, _InputIterator __last) {
+	    _M_t.insert_unique(__first, __last);
+	  }
+
+<div class="cut"></div>
+
+erase 函数用来删除给定位置的元素，直接删除红黑树中对应位置的节点即可。
+
+	  void erase(iterator __position) { 
+	    typedef typename _Rep_type::iterator _Rep_iterator;
+	    _M_t.erase((_Rep_iterator&)__position); 
+	  }
+
+<div class="cut"></div>
+
+erase 函数用来删除关键字值为 \_\_x 的元素。并返回删除的元素个数。直接删除红黑树中关键值为 \_\_x 的元素即可。
+
+	  size_type erase(const key_type& __x) { 
+	    return _M_t.erase(__x); 
+	  }
+
+<div class="cut"></div>
+
+erase 函数删除 \_\_first 和 \_\_last 限定的区域的元素，直接删除红黑树中对应区域的节点即可。
+
+	  void erase(iterator __first, iterator __last) { 
+	    typedef typename _Rep_type::iterator _Rep_iterator;
+	    _M_t.erase((_Rep_iterator&)__first, (_Rep_iterator&)__last); 
+	  }
+
+<div class="cut"></div>
+
+clear 函数用来情况 set 中的所有元素，调用 \_M\_t 的 clear 函数，将红黑树中的节点清空即可。
+
+	  void clear() { _M_t.clear(); }
+
+<div class="cut"></div>
+
+find 函数用来在 set 中查找关键值为 \_\_x 的元素，直接在红黑树中查找关键值为 \_\_x 的节点即可。
+
+	  iterator find(const key_type& __x) const { return _M_t.find(__x); }
+
+<div class="cut"></div>
+
+count 函数用来查找 set 中关键值为 \_\_x 的元素个数，因为 set 中的元素的关键值各不相同，因此关键值为 \_\_x 的元素最多为 1。通过查找红黑树中的节点，如果找到关键值为 \_\_x 的返回 1 ，否则返回 0 。
+
+	  size_type count(const key_type& __x) const {
+	    return _M_t.find(__x) == _M_t.end() ? 0 : 1;
+	  }
+
+<div class="cut"></div>
+
+函数 lower\_bound 用来返回从 begin() 开始第一个关键值不小于 \_\_x 的迭代器，调用 \_M\_t 的 lower\_bound 函数即可。
+
+	  iterator lower_bound(const key_type& __x) const {
+	    return _M_t.lower_bound(__x);
+	  }
+
+<div class="cut"></div>
+
+函数 upper\_bound 用来返回从 begin() 开始第一个关键值大于 \_\_x 的迭代器，调用 \_M\_t 的 upper\_bound 函数即可。
+
+	  iterator upper_bound(const key_type& __x) const {
+	    return _M_t.upper_bound(__x); 
+	  }
+
+<div class="cut"></div>
+
+equal\_range 函数返回 lower\_bound 和 upper\_bound 函数的迭代器的 pair 组合。也是直接调用 \_M\_t 的 equal\_range 函数即可。
+
+	  pair<iterator,iterator> equal_range(const key_type& __x) const {
+	    return _M_t.equal_range(__x);
+	  }
+
+<div class="cut"></div>
+
+比较两个 set 是否相等，通过比较存储其节点的红黑树是否相等即可。因为 operator== 中访问到了 set 中的私有成员，因此 operator== 应该设置为 set 的友元函数。
+
+	template <class _Key, class _Compare, class _Alloc>
+	inline bool operator==(const set<_Key,_Compare,_Alloc>& __x, 
+			       const set<_Key,_Compare,_Alloc>& __y) {
+	  return __x._M_t == __y._M_t;
+	}
+
+<div class="cut"></div>
+
+比较两个 set 的大小，也是直接比较存储其节点的红黑树即可。同样 operator< 也要设置为 set 的友元函数。
+
+	template <class _Key, class _Compare, class _Alloc>
+	inline bool operator<(const set<_Key,_Compare,_Alloc>& __x, 
+			      const set<_Key,_Compare,_Alloc>& __y) {
+	  return __x._M_t < __y._M_t;
+	}

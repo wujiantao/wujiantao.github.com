@@ -1,0 +1,245 @@
+---
+title: STL 的 tree 分析（一）
+layout: post
+key: f82f0b68-1521-41d0-b231-39e85e3baede
+tags:
+  -tree 
+  -STL
+---
+
+红黑树在 stl\_tree.h 中被实现。红黑树主要用于 map, set, multimap, multiset 等关联容器的实现。
+
+<div class="cut"></div>
+
+stl\_tree.h 中首先定义了一个 bool 类型的类型别名 \_Rb\_tree\_Color\_type 。用来表示红黑树节点的颜色值。然后定义了两个 bool 类型的常量，分别为 \_S\_rb\_tree\_red 和 \_S\_rb\_tree\_black 。其中 \_S\_rb\_tree\_red 的值为 false, 表示红色的颜色值。 \_S\_rb\_tree\_black 的值为 true, 表示黑色的颜色值。
+
+	typedef bool _Rb_tree_Color_type;
+	const _Rb_tree_Color_type _S_rb_tree_red = false;
+	const _Rb_tree_Color_type _S_rb_tree_black = true;
+
+<div class="cut"></div>
+
+####结构体 \_Rb\_tree\_node\_base####
+
+\_Rb\_tree\_node\_base 是 \_Rb\_tree\_node(\_Rb\_tree\_node 用来存储红黑树的节点) 的父类。在类中定义了两个成员类型 \_Color\_type 和 \_Base\_ptr。同时定义了四个成员变量。其中 \_M\_color 用来存储颜色值，\_M\_parent 是指向父节点的指针，\_M\_left 是指向左孩子的指针，\_M\_right 是指向右孩子的指针。
+
+静态成员函数 \_S\_minimum 用来获取以 \_\_x 为根的子树中，关键值最小的节点(最左节点)。
+
+静态函数 \_S\_maximum 用来取得以 \_\_x 为根的子树中，关键值最大的节点(最右节点)。
+
+	struct _Rb_tree_node_base
+	{
+	  typedef _Rb_tree_Color_type _Color_type;
+	  typedef _Rb_tree_node_base* _Base_ptr;
+
+	  _Color_type _M_color; 
+	  _Base_ptr _M_parent;
+	  _Base_ptr _M_left;
+	  _Base_ptr _M_right;
+
+	  static _Base_ptr _S_minimum(_Base_ptr __x)
+	  {
+	    while (__x->_M_left != 0) __x = __x->_M_left;
+	    return __x;
+	  }
+
+	  static _Base_ptr _S_maximum(_Base_ptr __x)
+	  {
+	    while (__x->_M_right != 0) __x = __x->_M_right;
+	    return __x;
+	  }
+	};
+
+<div class="cut"></div>
+
+###类模板 \_Rb\_tree\_node###
+
+\_Rb\_tree\_node 用来存储红黑树中的节点，他继承自 \_Rb\_tree\_node\_base 。其模板形参 \_Value 用来表示红黑树节点的键值类型。类模板中定义了一个成员类型 \_Link\_type 和 一个 \_Value 类型的成员变量 \_M\_value\_field。其中 \_M\_value\_field 用来存储节点的键值。
+
+	template <class _Value>
+	struct _Rb_tree_node : public _Rb_tree_node_base
+	{
+	  typedef _Rb_tree_node<_Value>* _Link_type;
+	  _Value _M_value_field;
+	};
+
+<div class="cut"></div>
+
+\_Rb\_tree\_base\_iterator 用来作为 \_Rb\_tree\_iterator (\_Rb\_tree\_iterator 是红黑树的迭代器类型) 的父类，在其中会定义一些成员变量和成员函数，以供子类 \_Rb\_tree\_iterator 使用。
+	struct _Rb_tree_base_iterator
+
+<div class="cut"></div>
+
+类中首先定义了三个成员类型，其中 \_Base\_ptr 为 \_Rb\_tree\_node\_base::\_Base\_ptr (实际即为 \_Rb\_tree\_node\_base\*) 的类型别名。iterator\_category 为 bidirectional\_iterator\_tag 的类型别名。
+
+	  typedef _Rb_tree_node_base::_Base_ptr _Base_ptr;
+	  typedef bidirectional_iterator_tag iterator_category;
+	  typedef ptrdiff_t difference_type;
+
+<div class="cut"></div>
+
+同时定义了一个 \_Base\_ptr 类型的成员变量，通过 \_M\_node 来指向具体的节点。同时定义一些成员函数，用来作为操作 \_M\_node 的接口。
+
+	  _Base_ptr _M_node;
+
+<div class="cut"></div>
+
+\_M\_increment 函数用来获取 \_M\_node 指向的节点的后继节点，并让 \_M\_node 指向这个后继节点。
+
+函数首先检测 \_M\_node 指向的节点是否存在右孩子，如果有，则获取到以 \_M\_node 的右孩子为根的子树中的最左节点(即 \_Rb\_tree\_node\_base 中的成员函数 \_S\_minimum 所求的节点)，该最左节点即为所求的后继节点，更新 \_M\_node ，让 \_M\_node 指向该节点。
+
+如果当前 \_M\_node 指向的节点没有右孩子。则不断的向上回溯，直到第一次碰到一个祖先节点，使得当前节点处在以该祖先节点为根的左子树中。如果存在这样的祖先节点，则该祖先节点即为当前节点的后继节点。
+
+当前文件中定义的红黑树和通常的红黑树定义稍有不同，当前定义中为红黑色增加了一个额外节点 \_M\_header。它是一个 \_M\_tree\_node 类型的指针，其 \_M\_parent 指向根节点，其 \_M\_left 指向最左节点，其 \_M\_right 指向最右节点，同时根节点的 \_M\_parent 指向 \_M\_header 。即根节点和 \_M\_parent 互为父节点。
+
+对于 else 语句中的 while 循环，当当前节点为最右节点时，会一直回溯到根节点的位置，此时 \_\_y 为 \_M\_header 而 \_M\_node 为根节点。此时 \_\_y->\_M\_right 指向最右节点，循环得以继续的唯一条件就是，最右节点和根节点为同一节点，如果循环继续满足，则 \_\_y 又回到根节点，而 \_M\_node 变成 \_M\_header。但此时循环肯定会退出，此时接下来的 if 语句因为条件不成立不会被执行，所以 \_M\_node 仍然指向 \_M\_header。
+
+而如果根节点和最右节点不为同一节点，则循环会退出，此时 \_M\_node 为根节点， \_\_y 为 \_M\_header 。将 \_\_y 赋值给 \_M\_node ，使得 \_M\_node 指向 \_M\_header。这也正好与红黑树中将 \_M\_header 作为结束标记的要求是一致的。
+
+	  void _M_increment()
+	  {
+	    if (_M_node->_M_right != 0) {
+	      _M_node = _M_node->_M_right;
+	      while (_M_node->_M_left != 0)
+		_M_node = _M_node->_M_left;
+	    }
+	    else {
+	      _Base_ptr __y = _M_node->_M_parent;
+	      while (_M_node == __y->_M_right) {
+		_M_node = __y;
+		__y = __y->_M_parent;
+	      }
+	      if (_M_node->_M_right != __y)
+		_M_node = __y;
+	    }
+	  }
+
+
+<div class="cut"></div>
+
+
+\_M\_decrement 函数用来获取 \_M\_node 指向的节点的前驱节点。并更新 \_M\_node 使得 \_M\_node 指向其前驱节点。函数一开始首先判断 _M_node 是否指向 _M_header(因为 _M_header 的颜色值为红色，且与根节点互为父节点)，如果是，则直接的返回他的前驱节点最右节点(将 _M_header 看成整个红黑树的结束标记，它处在整个红黑树的最后一个节点(最右节点) 后面)。
+
+否则检测 \_M\_node 指向的节点是否存在左孩子，如果存在，则获取以该左孩子为根的子树中的最右节点，该最右节点即为所求的前驱节点。如果\_M\_node 指向的节点没有左孩子，则从当前节点开始向上回溯，知道第一次遇到一个祖先节点，使得当前节点处在以该祖先节点为根的右子树中。如果碰到这样的祖先节点，则该祖先节点就为当前节点的前驱节点。
+
+当当前节点已经是最左节点时，else 语句中的 while 循环结束，有两种情况，一种 \_M\_node 为根节点，\_\_y 为 \_M\_header，此时 最左节点和根节点不为同一节点，最后 \_M\_node 为 \_M\_header。另一种是 \_M\_node 为 \_M\_header，\_\_y 为 根节点，此时最左节点和根节点为同一节点，最后 \_M\_node 为根节点。
+
+	  void _M_decrement()
+	  {
+	    if (_M_node->_M_color == _S_rb_tree_red &&
+		_M_node->_M_parent->_M_parent == _M_node)
+	      _M_node = _M_node->_M_right;
+	    else if (_M_node->_M_left != 0) {
+	      _Base_ptr __y = _M_node->_M_left;
+	      while (__y->_M_right != 0)
+		__y = __y->_M_right;
+	      _M_node = __y;
+	    }
+	    else {
+	      _Base_ptr __y = _M_node->_M_parent;
+	      while (_M_node == __y->_M_left) {
+		_M_node = __y;
+		__y = __y->_M_parent;
+	      }
+	      _M_node = __y;
+	    }
+	  }
+	};
+
+<div class="cut"></div>
+
+###\_Rb\_tree\_iterator###
+
+\_Rb\_tree\_iterator 继承自 \_Rb\_tree\_base\_iterator 。它用来作为红黑树的迭代器类型。在 \_Rb\_tree\_iterator 中定义了一些成员类型。如 value\_type, reference, pointer, iterator, \_Self, \_Link\_type 。
+
+<div class="cut"></div>
+
+\_Rb\_tree\_iterator 有三个构造函数，第一个是空构造函数，第二个构造函数中带有一个 \_Link\_type 类型的形参，用来初始化从父类的成员 \_M\_node。第三个构造函数带有一个 iterator 类型的形参，用该迭代器变量的 \_M\_node 来初始化父类的 \_M\_node。
+
+函数 operator\*() 用来获取红黑树节点中存储的关键字的值。operator->() 函数返回的指向 operator\*() 返回值的指针。
+
+函数 operator++() (前置的自增运算) 用来将当前迭代器移动到下一个节点(移动到后继节点) 。并且返回移动之后的迭代器。函数 operator++(int) (后置的自增运算) 也是将当前迭代器移动到后继节点，但返回的是移动之前的迭代器。
+
+函数 operator--() (前置的自减运算) 用来将当前迭代器移动到上一个节点(移动到前驱节点) ，并且返回移动之后的迭代器。operator--(int) (后置的自减运算) 也是用来将当前迭代器移动到前驱节点，但返回的是移动之前的迭代器。
+
+	template <class _Value, class _Ref, class _Ptr>
+	struct _Rb_tree_iterator : public _Rb_tree_base_iterator
+	{
+	  typedef _Value value_type;
+	  typedef _Ref reference;
+	  typedef _Ptr pointer;
+	  typedef _Rb_tree_iterator<_Value, _Value&, _Value*>             
+	    iterator;
+	  typedef _Rb_tree_iterator<_Value, const _Value&, const _Value*> 
+	    const_iterator;
+	  typedef _Rb_tree_iterator<_Value, _Ref, _Ptr>                   
+	    _Self;
+	  typedef _Rb_tree_node<_Value>* _Link_type;
+
+	  _Rb_tree_iterator() {}
+	  _Rb_tree_iterator(_Link_type __x) { _M_node = __x; }
+	  _Rb_tree_iterator(const iterator& __it) { _M_node = __it._M_node; }
+
+	  reference operator*() const { return _Link_type(_M_node)->_M_value_field; }
+	#ifndef __SGI_STL_NO_ARROW_OPERATOR
+	  pointer operator->() const { return &(operator*()); }
+	#endif /* __SGI_STL_NO_ARROW_OPERATOR */
+
+	  _Self& operator++() { _M_increment(); return *this; }
+	  _Self operator++(int) {
+	    _Self __tmp = *this;
+	    _M_increment();
+	    return __tmp;
+	  }
+	    
+	  _Self& operator--() { _M_decrement(); return *this; }
+	  _Self operator--(int) {
+	    _Self __tmp = *this;
+	    _M_decrement();
+	    return __tmp;
+	  }
+	};
+
+<div class="cut"></div>
+
+函数 operator== 用来判断两个迭代器是否相等，通过判断迭代器的成员变量 \_M\_node 是否相等即可。函数的形参为 \_Rb\_tree\_base\_iterator 既可以作为 \_Rb\_tree\_base\_itertaor 的引用，也可以作为 \_Rb\_tree\_iterator 的引用。
+
+	inline bool operator==(const _Rb_tree_base_iterator& __x,
+			       const _Rb_tree_base_iterator& __y) {
+	  return __x._M_node == __y._M_node;
+	}
+
+<div class="cut"></div>
+
+函数 iterator\_category 用来返回迭代器的类型，返回内部定义的 iterator\_category 类型的实例(迭代器中通常会定义一个成员类型  iterator\_category, iterator\_category 是 stl\_iterator\_base.h 中定义的五种迭代器标记中的一种，对于红黑树的迭代器，其 iterator\_category 为 bidirectional\_iterator\_tag) 。
+
+	inline bidirectional_iterator_tag
+	iterator_category(const _Rb_tree_base_iterator&) {
+	  return bidirectional_iterator_tag();
+	}
+
+<div class="cut"></div>
+
+函数 distance\_type 用来获取迭代器中定义的 difference\_type 的类型。返回值为 difference\_type 类型的一个空指针。
+
+	inline _Rb_tree_base_iterator::difference_type*
+	distance_type(const _Rb_tree_base_iterator&) {
+	  return (_Rb_tree_base_iterator::difference_type*) 0;
+	}
+
+<div class="cut"></div>
+
+函数 value\_type 用来获取迭代器中定义的 value\_type 的类型(迭代器中会将 value\_type 声明为 \_Value 的类型别名。value\_type 为红黑树节点中存储的关键字的类型) 。返回值为 \_Value 类型的一个空指针。返回值设定为指针，既简单高效，而且节约空间。
+
+	template <class _Value, class _Ref, class _Ptr>
+	inline _Value* value_type(const _Rb_tree_iterator<_Value, _Ref, _Ptr>&) {
+	  return (_Value*) 0;
+	}
+
+<div class="cut"></div>
+
+[STL 的 tree 分析（一）](../20/rb_tree1.html)</br>
+[STL 的 tree 分析（二）](../20/rb_tree2.html)</br>
+[STL 的 tree 分析（三）](../20/rb_tree3.html)</br>
+[STL 的 tree 分析（四）](../20/rb_tree4.html)</br>
+[STL 的 tree 分析（五）](../20/rb_tree5.html)</br>

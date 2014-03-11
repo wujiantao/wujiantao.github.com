@@ -1,0 +1,330 @@
+---
+title: STL 的 bitset 分析（二）
+layout: post
+key: d2beef23-7ee2-4f00-b9d1-af401e869386
+tags:
+  -bitset 
+  -STL
+---
+
+函数 \_M\_do\_to\_ulong 将 \_M\_w 表示的值转换成一个无符号长整数，函数要求 \_M\_w[0] 以上的字都是 0 ，否则抛出异常，如果 \_M\_w 中只有 \_M\_w[0] 所在的字不为 0 。则直接返回 \_M\_w[0] 表示的无符号长整数。
+
+	template<size_t _Nw>
+	unsigned long _Base_bitset<_Nw>::_M_do_to_ulong() const
+	{
+	  for (size_t __i = 1; __i < _Nw; ++__i) 
+	    if (_M_w[__i]) 
+	      __STL_THROW(overflow_error("bitset"));
+	  
+	  return _M_w[0];
+	}
+
+<div class="cut"></div>
+	  
+函数 \_M\_do\_find\_first 查找从 \_M\_w 的最低位开始第一个为 1 的位。如果找到则返回找到的位置，否则返回形参提供的 \_\_not\_found(\_\_not\_found 不应为 \_\_0 到 \_Nw \* \_\_BIT\_PER\_WORD - 1 的数)。
+
+函数从 \_M\_w[0] 开始逐个查找 \_M\_w 中的元素，如果找到一个不为 0 的元素，则说明第一个为 1 的位在这个字中，然后再从低字节到高字节逐个查找这个字的每个字节，如果找到一个不为 0 的字节，则说明第一个为 1 的位在这个字节中，最后根据该字节的值查找第一个为 1 的位在第几位。如果 \_M\_w 表示的值为 0 ，则最后返回 \_\_not\_found 。
+
+	template<size_t _Nw>
+	size_t _Base_bitset<_Nw>::_M_do_find_first(size_t __not_found) const 
+	{
+	  for ( size_t __i = 0; __i < _Nw; __i++ ) {
+	    _WordT __thisword = _M_w[__i];
+	    if ( __thisword != static_cast<_WordT>(0) ) {
+	      // find byte within word
+	      for ( size_t __j = 0; __j < sizeof(_WordT); __j++ ) {
+		unsigned char __this_byte
+		  = static_cast<unsigned char>(__thisword & (~(unsigned char)0));
+		if ( __this_byte )
+		  return __i*__BITS_PER_WORD + __j*CHAR_BIT +
+		    _First_one<true>::_S_first_one[__this_byte];
+
+		__thisword >>= CHAR_BIT;
+	      }
+	    }
+	  }
+	  // not found, so return an indication of failure.
+	  return __not_found;
+	}
+
+<div class="cut"></div>
+	  
+
+函数 \_M\_do\_find\_next 查找第 \_\_prev 位之后第一个为 1 的位。首先 prev++(下面的\_\_prev 都是自增之后的 \_\_prev)，然后找到 \_\_prev 位所在的字 \_M\_w[\_\_i]。然后从 \_M\_w[\_\_i] 的 \_S\_whichbyte(\_\_prev) 字节开始到高字节，查找是否存在不为 0 的字节，如果存在，则说明从 \_\_prev 开始第一个为 1 的位在当前字节，然后根据该字节的值查找该字节中第一个为 1 的位在该字节的第几位。如果从 \_\_prev 所有的位都为 0 ，则返回 \_\_not\_found 。
+
+	template<size_t _Nw>
+	size_t
+	_Base_bitset<_Nw>::_M_do_find_next(size_t __prev, size_t __not_found) const
+	{
+	  // make bound inclusive
+	  ++__prev;
+
+	  // check out of bounds
+	  if ( __prev >= _Nw * __BITS_PER_WORD )
+	    return __not_found;
+
+	    // search first word
+	  size_t __i = _S_whichword(__prev);
+	  _WordT __thisword = _M_w[__i];
+
+	    // mask off bits below bound
+	  __thisword &= (~static_cast<_WordT>(0)) << _S_whichbit(__prev);
+
+	  if ( __thisword != static_cast<_WordT>(0) ) {
+	    // find byte within word
+	    // get first byte into place
+	    __thisword >>= _S_whichbyte(__prev) * CHAR_BIT;
+	    for ( size_t __j = _S_whichbyte(__prev); __j < sizeof(_WordT); __j++ ) {
+	      unsigned char __this_byte
+		= static_cast<unsigned char>(__thisword & (~(unsigned char)0));
+	      if ( __this_byte )
+		return __i*__BITS_PER_WORD + __j*CHAR_BIT +
+		  _First_one<true>::_S_first_one[__this_byte];
+
+	      __thisword >>= CHAR_BIT;
+	    }
+	  }
+
+	  // check subsequent words
+	  __i++;
+	  for ( ; __i < _Nw; __i++ ) {
+	    _WordT __thisword = _M_w[__i];
+	    if ( __thisword != static_cast<_WordT>(0) ) {
+	      // find byte within word
+	      for ( size_t __j = 0; __j < sizeof(_WordT); __j++ ) {
+		unsigned char __this_byte
+		  = static_cast<unsigned char>(__thisword & (~(unsigned char)0));
+		if ( __this_byte )
+		  return __i*__BITS_PER_WORD + __j*CHAR_BIT +
+		    _First_one<true>::_S_first_one[__this_byte];
+
+		__thisword >>= CHAR_BIT;
+	      }
+	    }
+	  }
+
+	  // not found, so return an indication of failure.
+	  return __not_found;
+	} // end _M_do_find_next
+
+<div class="cut"></div>
+	  
+\_Base\_bitset 有一个偏特化定义，但模板形参 \_Nw 为 1 时，使用如下定义。\_Nw 为 1 说明所有位只需要一个字的变量就能存储完毕了。其具体的定义和定义在整型变量上的位运算比较类似，不再详述。
+
+	__STL_TEMPLATE_NULL struct _Base_bitset<1> {
+	  typedef unsigned long _WordT;
+	  _WordT _M_w;
+
+	  _Base_bitset( void ) : _M_w(0) {}
+	  _Base_bitset(unsigned long __val) : _M_w(__val) {}
+
+	  static size_t _S_whichword( size_t __pos )
+	    { return __pos / __BITS_PER_WORD; }
+	  static size_t _S_whichbyte( size_t __pos )
+	    { return (__pos % __BITS_PER_WORD) / CHAR_BIT; }
+	  static size_t _S_whichbit( size_t __pos )
+	    {  return __pos % __BITS_PER_WORD; }
+	  static _WordT _S_maskbit( size_t __pos )
+	    { return (static_cast<_WordT>(1)) << _S_whichbit(__pos); }
+
+	  _WordT& _M_getword(size_t)       { return _M_w; }
+	  _WordT  _M_getword(size_t) const { return _M_w; }
+
+	  _WordT& _M_hiword()       { return _M_w; }
+	  _WordT  _M_hiword() const { return _M_w; }
+
+	  void _M_do_and(const _Base_bitset<1>& __x) { _M_w &= __x._M_w; }
+	  void _M_do_or(const _Base_bitset<1>& __x)  { _M_w |= __x._M_w; }
+	  void _M_do_xor(const _Base_bitset<1>& __x) { _M_w ^= __x._M_w; }
+	  void _M_do_left_shift(size_t __shift)     { _M_w <<= __shift; }
+	  void _M_do_right_shift(size_t __shift)    { _M_w >>= __shift; }
+	  void _M_do_flip()                       { _M_w = ~_M_w; }
+	  void _M_do_set()                        { _M_w = ~static_cast<_WordT>(0); }
+	  void _M_do_reset()                      { _M_w = 0; }
+
+	  bool _M_is_equal(const _Base_bitset<1>& __x) const
+	    { return _M_w == __x._M_w; }
+	  bool _M_is_any() const
+	    { return _M_w != 0; }
+
+	  size_t _M_do_count() const {
+	    size_t __result = 0;
+	    const unsigned char* __byte_ptr = (const unsigned char*)&_M_w;
+	    const unsigned char* __end_ptr
+	      = ((const unsigned char*)&_M_w)+sizeof(_M_w);
+	    while ( __byte_ptr < __end_ptr ) {
+	      __result += _Bit_count<true>::_S_bit_count[*__byte_ptr];
+	      __byte_ptr++;
+	    }
+	    return __result;
+	  }
+
+	  unsigned long _M_do_to_ulong() const { return _M_w; }
+
+	  size_t _M_do_find_first(size_t __not_found) const;
+
+	  // find the next "on" bit that follows "prev"
+	  size_t _M_do_find_next(size_t __prev, size_t __not_found) const; 
+
+	};
+
+<div class="cut"></div>
+	  
+\_Sanitize 用来将 bitset 的中多余的位清 0 。因为 bitset 中的所有的位保存在基类定义 \_M\_w 中，\_M\_w 中总的位数是 \_\_BIT\_PER\_WORD \* \_Nw，而实际需要的位数可能居于 \_\_BIT\_PER\_WORD \* \_Nw - 1 到 \_\_BIT\_PER\_WORD \* \_Nw 之间。\_Sanitize 会将\_M\_w[\_Nw - 1] 中多余的位置为 0 (多余的位处在高位)。模板形参 \_Extraabits 表示多出的位数。函数 \_M\_do\_sanitize 用来实现将多余位置 0 的操作。
+
+	template <size_t _Extrabits> struct _Sanitize {
+	  static void _M_do_sanitize(unsigned long& __val)
+	    { __val &= ~((~static_cast<unsigned long>(0)) << _Extrabits); }
+	};
+
+<div class="cut"></div>
+	  
+\_Sanitize 的一个偏特化定义，当 \_Extrabits 为 0 时表示没有多余的位，此时 \_M\_do\_sanitize 不做任何操作。
+
+	__STL_TEMPLATE_NULL struct _Sanitize<0> {
+	  static void _M_do_sanitize(unsigned long) {}
+	};
+
+<div class="cut"></div>
+	  
+类模板 bitset 继承自 \_Base\_bitset<\_\_BITSET\_WORDS(\_Nb)> 。其中 \_Nb 表示 bitset 中一共有 \_Nb 位。\_\_BITSET\_WORDS(\_Nb) 表示 \_Nb 位至少需要多少个字来进行存储，以便实例化 \_Base\_bitset 。
+
+	template<size_t _Nb>
+	class bitset : private _Base_bitset<__BITSET_WORDS(_Nb)>
+	{
+
+<div class="cut"></div>
+	  
+内部定义了两个成员类型 \_Base 和 \_WordT 。
+
+	private:
+	  typedef _Base_bitset<__BITSET_WORDS(_Nb)> _Base;
+	  typedef unsigned long _WordT;
+
+<div class="cut"></div>
+	  
+函数 \_M\_do\_santize 用来将基类中 \_M\_w 的多余位置为 0 。调用 \_Sanitize<\_Nb % \_\_BIT\_PER\_WORD> 类的静态函数 \_M\_do\_sanitize 来实现。\_M\_hiword() 返回 \_M\_w 中最高位置的字(\_M\_w[\_\_BITSET\_WORD(\_Nb) - 1])。
+
+	  void _M_do_sanitize() {
+	    _Sanitize<_Nb%__BITS_PER_WORD>::_M_do_sanitize(this->_M_hiword());
+	  }
+
+<div class="cut"></div>
+	  
+bitset 中定义了一个嵌套类，它的作用有点类似于之前介绍的迭代器，通过 reference 的实例能够索引到 bitset 的某个位。reference 被设置为 bitset 的友元类。
+
+	  class reference;
+	  friend class reference;
+
+<div class="cut"></div>
+	  
+reference 类中将 bitset 也设置成了友元类，同时 reference 中定义了两个成员变量，其中 \_M\_wp 用来指向 bitset 中 \_M\_w 的中的某个字，\_M\_pos 用来表示当前 reference 在索引 \_M\_wp 指向的字中哪一个位。
+
+	    friend class bitset;
+
+	    _WordT *_M_wp;
+	    size_t _M_bpos;
+
+<div class="cut"></div>
+	  
+构造函数通过一个 bitset 的实例来初始化当前 \_M\_wp ，用给定值 \_\_pos 来初始化 \_M\_pos。
+
+	    reference( bitset& __b, size_t __pos ) {
+	      _M_wp = &__b._M_getword(__pos);
+	      _M_bpos = _Base::_S_whichbit(__pos);
+	    }
+
+<div class="cut"></div>
+	  
+函数 operator= 用 \_\_x 来对当前 reference 索引的位进行赋值，如果 \_\_x 为 true 则将 \_M\_wp 指向的字中的第 \_M\_pos 位置为 1。否则将该位置为 0。 
+
+	    reference& operator=(bool __x) {
+	      if ( __x )
+		*_M_wp |= _Base::_S_maskbit(_M_bpos);
+	      else
+		*_M_wp &= ~_Base::_S_maskbit(_M_bpos);
+
+	      return *this;
+	    }
+
+<div class="cut"></div>
+	  
+函数 operator= 用一个 reference 的实例 \_\_j 中的内容赋值给当前 reference。如果 \_\_j 中 \_M\_wp 非空，而且 \_\_j 中 \_M\_wp 的第 \_\_j.\_M\_pos 位为 1，则将当前 reference 中 \_M\_wp 指向的字中的第 \_M\_pos 位置为 1 。否则将该位置为 0 。
+
+	    reference& operator=(const reference& __j) {
+	      if ( (*(__j._M_wp) & _Base::_S_maskbit(__j._M_bpos)) )
+		*_M_wp |= _Base::_S_maskbit(_M_bpos);
+	      else
+		*_M_wp &= ~_Base::_S_maskbit(_M_bpos);
+
+	      return *this;
+	    }
+
+<div class="cut"></div>
+	  
+函数 operator~() 取当前 reference 索引的位的反。如果 \_M\_wp 非空，判断 \_M\_wp 指向的字中的第 \_M\_pos 位是否为 1 。如果为 1 则返回 false(即 0)。否则返回 true(即 1 )，如果 \_M\_wp 为空，返回 1 
+
+	    bool operator~() const
+	      { return (*(_M_wp) & _Base::_S_maskbit(_M_bpos)) == 0; }
+
+<div class="cut"></div>
+	  
+函数 operator() 取当前 reference 索引的位的值。如果 \_M\_wp 非空，判断 \_M\_wp 指向的字中的第 \_M\_pos 位是否为 1 。如果为 1 则返回 true(即 1)，否则返回 false(即 0)。如果 \_M\_wp 为空，返回 0 。
+
+	    operator bool() const
+	      { return (*(_M_wp) & _Base::_S_maskbit(_M_bpos)) != 0; }
+
+<div class="cut"></div>
+	  
+函数 flip 用来将 reference 索引的位取反，前面的两个函数只是返回了需要的值，但没有对当前 reference 索引的位进行更改，但 flip 函数会改变当前 reference 索引的位。函数将 \_M\_wp 所指向的字与一个第 \_M\_pos 位为 1 ，其他位为 0 的字进行异或，达到将 \_M\_wp 所指向的字中的第 \_M\_pos 位取反的目的。
+
+	    reference& flip() {
+	      *_M_wp ^= _Base::_S_maskbit(_M_bpos);
+	      return *this;
+	    }
+
+<div class="cut"></div>
+	  
+第一个构造函数为空构造函数，第二个构造函数用一个给定的无符号长整数 \_\_val 来对当前 bitset 进行初始化。初始化列表中调用基类的构造函数，用来初始化基类的 \_M\_w，函数体中调用 \_M\_do\_sanitize() 函数将多余的位置为 0 。
+
+	  bitset() {}
+	  bitset(unsigned long __val) : _Base_bitset<__BITSET_WORDS(_Nb)>(__val) 
+	    { _M_do_sanitize(); }
+
+<div class="cut"></div>
+	  
+构造函数中用字符串 \_\_s 中第 \_\_pos 位以后的内容对当前 bitet 进行初始化，要求 \_\_s 中第 \_\_pos 位以后的内容只有字符 0 或者字符 1 。
+
+	  template<class _CharT, class _Traits, class _Alloc>
+	  explicit bitset(const basic_string<_CharT, _Traits, _Alloc>& __s,
+			  size_t __pos = 0)
+	    : _Base() 
+	  {
+	    if (__pos > __s.size()) 
+	      __STL_THROW(out_of_range("bitset"));
+	    _M_copy_from_string(__s, __pos,
+				basic_string<_CharT, _Traits, _Alloc>::npos);
+	  }
+
+<div class="cut"></div>
+	  
+构造函数中用字符串 \_\_s 中第 \_\_pos 位以后的 \_\_n 个字符对当前 bitset 进行初始化。要求 \_\_s 中第 \_\_pos 为以后的 \_\_n 个字符中只能出现字符 0 或者字符 1。
+
+	  template<class _CharT, class _Traits, class _Alloc>
+	  bitset(const basic_string<_CharT, _Traits, _Alloc>& __s,
+		 size_t __pos,
+		 size_t __n)
+	    : _Base() 
+	  {
+	    if (__pos > __s.size()) 
+	      __STL_THROW(out_of_range("bitset"));
+	    _M_copy_from_string(__s, __pos, __n);
+	  }
+
+
+<div class="cut"></div>
+
+[STL 的 bitset 分析（一）](../01/bitset1.html)</br>
+[STL 的 bitset 分析（二）](../01/bitset2.html)</br>
+[STL 的 bitset 分析（三）](../01/bitset3.html)</br>
+[STL 的 bitset 分析（四）](../01/bitset4.html)</br>

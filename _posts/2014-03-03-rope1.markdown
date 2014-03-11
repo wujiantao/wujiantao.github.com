@@ -1,0 +1,251 @@
+---
+title: STL 的 rope 分析（一）
+layout: post
+key: 46fa74da-ec22-4e61-bc13-a010a897bd97
+tags:
+  -rope 
+  -STL
+---
+
+string 用来处理小规模的字符串，而 rope 则用来处理大规模的字符串，比如一些以 M 为单位的文本处理。rope 的具体实现由 stl\_rope.h 和 rompimpl.h 两个文件组成。其中一些类的成员函数的声明在 stl\_rope.h，而具体的实现放在了 ropeimpl.h 中。
+
+<div class="cut"></div>
+
+函数 _S_eos 用来判断一个元素是否是结束标记。
+
+	template <class _CharT>
+	inline _CharT _S_eos(_CharT*) { return _CharT(); }
+
+<div class="cut"></div>
+
+函数 \_S\_is\_basic\_char\_type 用来判断一个元素是否是基本的字符类型，其中使用了偏特化，但类型为 char 和 wchar\_t 时认为其实基本的字符类型。函数 \_S\_is\_one\_byte\_char\_type 用来判断一个元素是否只有一个字节，也是使用了偏特化，当元素类型为 char 时认为该元素只占用一个字节。
+
+	template <class _CharT>
+	inline bool _S_is_basic_char_type(_CharT*) { return false; }
+	template <class _CharT>
+	inline bool _S_is_one_byte_char_type(_CharT*) { return false; }
+
+	inline bool _S_is_basic_char_type(char*) { return true; }
+	inline bool _S_is_one_byte_char_type(char*) { return true; }
+	inline bool _S_is_basic_char_type(wchar_t*) { return true; }
+
+<div class="cut"></div>
+
+函数 \_S\_cond\_stroe\_eos 用来将指定元素设置为结束标记，只有当元素的类型为 char 或者 wchar\_t 时才会使用 0 作为结束标记。其他的元素类型没有结束标记。
+
+	template <class _CharT>
+	inline void _S_cond_store_eos(_CharT&) {}
+
+	inline void _S_cond_store_eos(char& __c) { __c = 0; }
+	inline void _S_cond_store_eos(wchar_t& __c) { __c = 0; }
+
+<div class="cut"></div>
+
+####类模板 char\_producer####
+
+类模板 char\_producer 中声明了一个的 operator() 函数能够产生一个指定长度为 \_\_len 的元素串，其中产生的元素串放在 \_\_buffer 开始的地址中。在接下来的 rope 中 Function 类型的节点中会将 char\_producer 类型的指针作为成员，用它来为该节点生成元素串。
+
+因为 char\_producer 中声明了一个纯虚函数 operator() 。使得 char\_producer 成为一个抽象类，这样 char\_producer 就不能被实例化了，只能是在其继承类中重新声明并实现了 operator() 函数的非抽象类才能被实例化。但可以用 char\_producer 的指针指向其继承类，然后通过该 char\_producer 的指针引用继承类的 operator() 函数。
+
+	template <class _CharT>
+	class char_producer {
+	    public:
+		virtual ~char_producer() {};
+		virtual void operator()(size_t __start_pos, size_t __len, 
+					_CharT* __buffer) = 0;
+	};
+
+<div class="cut"></div>
+
+####类模板 \_Rope\_char\_consumer####
+
+类模板 \_Rope\_char\_consumer 和 char\_producer 一样也是一个抽象类，在 rope 中定义了很多 \_Rope\_char\_consumer 的继承类用来实现特定的功能，如元素的查找，获取子串等等。其中具体的功能还是有 operator() 函数来实现。
+
+	template<class _CharT>
+	class _Rope_char_consumer {
+	    public:
+		virtual ~_Rope_char_consumer() {};
+		virtual bool operator()(const _CharT* __buffer, size_t __len) = 0;
+	};
+
+<div class="cut"></div>
+
+在 stl\_rope.h 中定义了一个 \_ROPE\_DEFINE\_ALLOCS 的宏定义。在它的宏定义中又包含有另一个宏定义 \_ROPE\_DEFINE\_ALLOC 。因此在展开 \_ROPE\_DEFINE\_ALLOC 时要做两层展开。
+
+	#define __ROPE_DEFINE_ALLOCS(__a) \
+		__ROPE_DEFINE_ALLOC(_CharT,_Data) /* character data */ \
+		typedef _Rope_RopeConcatenation<_CharT,__a> __C; \
+		__ROPE_DEFINE_ALLOC(__C,_C) \
+		typedef _Rope_RopeLeaf<_CharT,__a> __L; \
+		__ROPE_DEFINE_ALLOC(__L,_L) \
+		typedef _Rope_RopeFunction<_CharT,__a> __F; \
+		__ROPE_DEFINE_ALLOC(__F,_F) \
+		typedef _Rope_RopeSubstring<_CharT,__a> __S; \
+		__ROPE_DEFINE_ALLOC(__S,_S)
+
+<div class="cut"></div>
+
+####类模板 \_Rope\_rep\_alloc\_base####
+
+类模板 \_Rope\_rep\_alloc\_base 中定义了三个模板形参，其中 \_CharT 用来表示元素类型，\_Allocator 用来分配和回收内存，\_IsStatic 用来表示 \_Allocator 的不同实例中是否存在区别(当 \_Allocator 的所有成员都是静态成员时，不同实例之间是没有区别的)。
+
+	template <class _CharT, class _Allocator, bool _IsStatic>
+	class _Rope_rep_alloc_base {
+
+<div class="cut"></div>
+
+然后定义了一个成员类型 allocator\_type 。和成员函数 get\_allocator 。其中 get\_allocator 用来返回成员变量 \_M\_data\_allocator 。\_M\_data\_allocator 是 allocator\_type 类型的实例。
+
+	public:
+	  typedef typename _Alloc_traits<_CharT,_Allocator>::allocator_type
+		  allocator_type;
+	  allocator_type get_allocator() const { return _M_data_allocator; }
+
+<div class="cut"></div>
+
+\_Rope\_rep\_alloc\_base 中定义了两个成员变量，其中 \_M\_data\_allocator 用来进行内存的分配。后面用来表示 rope 节点的类都是继承自 \_Rope\_rep\_alloc\_base 的，\_M\_size 则用来记录节点中的元素个数。
+
+	  size_t _M_size;       // This is here only to avoid wasting space
+	protected:
+	    allocator_type _M_data_allocator;
+
+<div class="cut"></div>
+
+构造函数中对 \_M\_size 和 \_M\_data\_allocator 进行初始化。
+
+	  _Rope_rep_alloc_base(size_t __size, const allocator_type& __a)
+		: _M_size(__size), _M_data_allocator(__a) {}
+
+	  
+<div class="cut"></div>
+
+在 \_Rope\_rep\_alloc\_base 中定义了一个 \_ROPE\_DEFINE\_ALLOC 的宏定义，在该宏定义中，定义了一个 \_\_name##Allocator 的类型，然后定义定义了一个 \_\_name##\_allocate 的函数，该函数中通过 \_M\_date\_allocator 来初始化一个 \_\_name##Allocator 类型的实例，并用该实例来分配给定空间的内存。同时定义了一个函数 \_\_name##\_deallocate ，在该函数中也是用 \_M\_data\_allocator 初始化了一个 \_\_name##Allocator 类型的实例，并用该实例来回收指定位置的内存。
+
+	# define __ROPE_DEFINE_ALLOC(_Tp, __name) \
+		typedef typename \
+		  _Alloc_traits<_Tp,_Allocator>::allocator_type __name##Allocator; \
+		/*static*/ _Tp * __name##_allocate(size_t __n) \
+		  { return __name##Allocator(_M_data_allocator).allocate(__n); } \
+		void __name##_deallocate(_Tp* __p, size_t __n) \
+		  { __name##Allocator(_M_data_allocator).deallocate(__p, __n); }
+
+<div class="cut"></div>
+
+然后接着使用了宏展开 \_\_ROPE\_DEFINE\_ALLOCS(\_Allocator)。结合之前的宏定义 \_ROPE\_DEFINE\_ALLOCS 。\_ROPE\_DEFINE\_ALLOCS(\_Allocator) 展开之后，会声明五个成员类型，分别为 \_DataAllocator, \_LAllocator, \_CAllocator, \_FAllocator, \_SAllocator 五种成员类型，同时定义了十个成员函数分别为 \_Data\_allocate, \_Data\_deallocate, \_L\_allocate, \_L\_deallocte, \_C\_allocate, \_C\_deallocte, \_F\_allocate, \_F\_deallocate, \_S\_allocate, \_S\_deallocte。分别为五种类型的变量分配空间。然后解除了 \_\_ROPE\_DEFINE\_ALLOC 的宏定义。
+
+	  __ROPE_DEFINE_ALLOCS(_Allocator);
+	# undef __ROPE_DEFINE_ALLOC
+	};
+
+<div class="cut"></div>
+
+####\_Rope\_rep\_alloc\_base 的偏特化####
+
+\_Rope\_rep\_alloc\_base 中当第三个模板实参为 true 时使用如下的偏特化定义，对比默认的定义，偏特化定义中少了成员变量 \_M\_data\_allocator。同时应用宏定义 \_\_ROPE\_DEFINE\_ALLOC 和宏定义 \_\_ROPE\_DEFINE\_ALLOCS。将 \_\_ROPE\_DEFINE\_ALLOCS(\_Allocator) 展开之后，会得到十个成员类型分别为 \_DataAlloc, \_DataAllocator, \_CAlloc, \_CAllocator, \_LAlloc, \_LAllocator, \_FAlloc, \_FAllocator, \_SAlloc, \_SAllocator。同时定义了十个成员函数，分别为 \_Data\_allocate,  \_L\_allocate, \_C\_allocate, \_F\_allocate, \_S\_allocate, \_Data\_deallocate, \_L\_deallocte,  \_C\_deallocte,  \_F\_deallocate,  \_S\_deallocte。分别为五种类型的变量分配空间。其中前五个函数为静态成员函数，然后解除了 \_\_ROPE\_DEFINE\_ALLOC 的宏定义。
+
+	template <class _CharT, class _Allocator>
+	class _Rope_rep_alloc_base<_CharT,_Allocator,true> {
+	public:
+	  typedef typename _Alloc_traits<_CharT,_Allocator>::allocator_type
+		  allocator_type;
+	  allocator_type get_allocator() const { return allocator_type(); }
+	  _Rope_rep_alloc_base(size_t __size, const allocator_type&)
+			: _M_size(__size) {}
+	  size_t _M_size;
+	  
+	protected:
+	# define __ROPE_DEFINE_ALLOC(_Tp, __name) \
+		typedef typename \
+		  _Alloc_traits<_Tp,_Allocator>::_Alloc_type __name##Alloc; \
+		typedef typename \
+		  _Alloc_traits<_Tp,_Allocator>::allocator_type __name##Allocator; \
+		static _Tp* __name##_allocate(size_t __n) \
+			{ return __name##Alloc::allocate(__n); } \
+		void __name##_deallocate(_Tp *__p, size_t __n) \
+			{ __name##Alloc::deallocate(__p, __n); }
+	  __ROPE_DEFINE_ALLOCS(_Allocator);
+	# undef __ROPE_DEFINE_ALLOC
+	};
+
+<div class="cut"></div>
+
+####类模板 \_Rope\_rep\_base####
+
+类模板 \_Rope\_rep\_base 继承自 \_Rope\_rep\_alloc\_base<\_CharT, \_Alloc, \_Alloc\_traits<\_CharT, \_Alloc>::\_S\_instanceless> 。第三个模板形参会根据 \_Alloc 中的不同实例是否存在区别而分别为 false 和 true。但存在区别时为 false ,不存在区别时为 true。从而分别使用上面不同的 \_Rope\_rep\_alloc\_base 定义。
+
+	template <class _CharT, class _Alloc>
+	struct _Rope_rep_base
+	  : public _Rope_rep_alloc_base<_CharT,_Alloc,
+					_Alloc_traits<_CharT,_Alloc>::_S_instanceless>
+	{
+	  typedef _Rope_rep_alloc_base<_CharT,_Alloc,
+				       _Alloc_traits<_CharT,_Alloc>::_S_instanceless>
+		  _Base;
+	  typedef typename _Base::allocator_type allocator_type;
+	  _Rope_rep_base(size_t __size, const allocator_type& __a)
+	    : _Base(__size, __a) {}
+	};    
+
+
+<div class="cut"></div>
+
+####类模板 \_Rope\_Rope\_rep####
+
+rope 中的节点一共有四种类型，由四个类表示，但它们有一个共同的基类，那就是 \_Rope\_RopeRep ，在 \_Rope\_RopeRep 中定义了四个节点的共有成员。\_Rope\_RopeRep 继承自基类 \_Rope\_rep\_base<\_CharT, \_Alloc>，在 stl\_rope 中根据是否定义了宏 \_\_GC 而要考虑不同的情况，当没有定义 \_\_GC 时一些垃圾回收的工作需要程序自己做，如果定义了 \_\_GC 则不需要程序手动的去回收，为简便，假定程序中定义了 \_\_GC，对于没有定义 \_\_GC 所采取的额外操作，一律跳过。
+
+	template<class _CharT, class _Alloc>
+	struct _Rope_RopeRep : public _Rope_rep_base<_CharT,_Alloc>
+
+<div class="cut"></div>
+
+\_Rope\_RopeRep 中定义了一个没有名称的枚举变量，其中有一个没有名称的枚举值 \_S\_max\_rope\_depth，在程序中它被作为一个常量使用。同时定义了另一个枚举变量 \_Tag，其中有四个枚举值分别为 \_S\_leaf, \_S\_concat, \_S\_substringfn 和 \_S\_function 分别用来标记 rope 中不同的节点类型。
+
+rope 中的节点被组织成二叉树的形式，成员变量 \_M\_balanced 用来表示以当前节点为根的树是否是平衡树。 \_M\_depth 用来记录以当前节点为根的树的深度。\_M\_c\_string 是存储以当前节点为根的树中所保护的元素序列的展开形式(因为 rope 中的叶节点中存放着具体的元素，而以当前节点为根的树中可能有多个叶节点，\_M\_c\_string 中存放的是所有这些叶节点中的元素按照顺序组织后得到的元素序列，当当前节点本身就是叶节点时，它和叶节点的数据域指向同一个位置)。其中当定义了 \_\_GC 时， \_\_GC\_CONST 为 const 。
+
+	    enum { _S_max_rope_depth = 45 };
+	    enum _Tag {_S_leaf, _S_concat, _S_substringfn, _S_function};
+	    _Tag _M_tag:8;
+	    bool _M_is_balanced:8;
+	    unsigned char _M_depth;
+	    __GC_CONST _CharT* _M_c_string;
+
+<div class="cut"></div>
+
+定义了一个成员类型 allocator\_type，其为 typedef typename \_Rope\_rep\_base<\_CharT,\_Alloc>::allocator\_type 的类型别名。
+
+	    typedef typename _Rope_rep_base<_CharT,_Alloc>::allocator_type
+				allocator_type;
+
+<div class="cut"></div>
+
+构造函数的初始化列表中先对基类进行了初始化，然后对成员变量进行了初始化。
+
+	    _Rope_RopeRep(_Tag __t, int __d, bool __b, size_t __size,
+			  allocator_type __a)
+		: _Rope_rep_base<_CharT,_Alloc>(__size, __a),
+		  _M_tag(__t), _M_is_balanced(__b), _M_depth(__d), _M_c_string(0)
+	    { }
+
+<div class="cut"></div>
+
+\_Rope\_RoepRep 中定义了一系列的成员函数，对于定义了宏 \_\_GC 的情况下，这些成员函数都没有定义任何操作，这些函数只有在 \_\_GC 没有被定义的情况下才有意义。和先前一样，假设宏 \_\_GC 已经被定义。
+
+		static void _S_free_string(__GC_CONST _CharT*, size_t __len,
+                                   allocator_type __a){}
+		  void _M_free_c_string(){}
+		  void _M_free_tree(){}
+		  void _M_unref_nonnil() {}
+		  void _M_ref_nonnil() {}
+		  static void _S_unref(_Rope_RopeRep*) {}
+		  static void _S_ref(_Rope_RopeRep*) {}
+		  static void _S_free_if_unref(_Rope_RopeRep*) {}
+
+<div class="cut"></div>
+
+[STL 的 rope 分析（一）](../03/rope1.html)</br>
+[STL 的 rope 分析（二）](../03/rope2.html)</br>
+[STL 的 rope 分析（三）](../03/rope3.html)</br>
+[STL 的 rope 分析（四）](../03/rope4.html)</br>
+[STL 的 rope 分析（五）](../03/rope5.html)</br>
+[STL 的 rope 分析（六）](../03/rope6.html)</br>
+[STL 的 rope 分析（七）](../03/rope7.html)</br>

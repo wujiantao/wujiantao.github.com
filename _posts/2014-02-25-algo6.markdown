@@ -1,0 +1,371 @@
+---
+title: STL 的算法(algo) 分析（六）
+layout: post
+key: b35aa440-545c-4b8a-ac6e-4452de58bc5f
+tags:
+  -algo 
+  -STL 
+---
+
+\_\_partial\_sort 实现部分排序，令 \_\_first 到 \_\_middle 的距离为 \_\_len。函数对 \_\_first 到 \_\_last 中最小的 \_\_len 个元素进行排序，并将前 \_\_len 个最小元素排序后的序列放置到 \_\_first 到 \_\_middle 之间的位置。
+
+函数首先对 \_\_first 到 \_\_middle 中的元素构造一个最大堆，for 循环中将最小的 \_\_len 个元素移动到 \_\_first 到 \_\_middle 之间 (在堆中)。将余下的元素移动到 \_\_middle 到 \_\_last 之间。\_\_pop\_heap 函数每次将 first 所处的位置的元素(堆中的最大元素)弹出放置到 \_\_i 所在的位置，并将原先 \_\_i 所在的位置的元素插入到堆中，堆中的元素个数保持不变。最后调用 sort\_heap 对最小的 \_\_len 个元素进行排序。
+
+	template <class _RandomAccessIter, class _Tp>
+	void __partial_sort(_RandomAccessIter __first, _RandomAccessIter __middle,
+			    _RandomAccessIter __last, _Tp*) {
+	  make_heap(__first, __middle);
+	  for (_RandomAccessIter __i = __middle; __i < __last; ++__i)
+	    if (*__i < *__first) 
+	      __pop_heap(__first, __middle, __i, _Tp(*__i),
+			 __DISTANCE_TYPE(__first));
+	  sort_heap(__first, __middle);
+	}
+
+<div class="cut"></div> 
+
+partial\_sort 对 \_\_first 到 \_\_last 中的元素进行部分排序，通过调用上面定义的 \_\_partial\_sort 进行排序。
+
+	template <class _RandomAccessIter>
+	inline void partial_sort(_RandomAccessIter __first,
+				 _RandomAccessIter __middle,
+				 _RandomAccessIter __last) {
+	  __STL_REQUIRES(_RandomAccessIter, _Mutable_RandomAccessIterator);
+	  __STL_REQUIRES(typename iterator_traits<_RandomAccessIter>::value_type,
+			 _LessThanComparable);
+	  __partial_sort(__first, __middle, __last, __VALUE_TYPE(__first));
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_partial\_sort\_copy 将 \_\_first 到 \_\_last 中部分排序的内容复制到 \_\_result\_first 到 \_\_result\_last 之间。令 \_\_first 到 \_\_last 的长度为 \_\_l1，令 \_\_result\_first 到 \_\_result\_last 的元素个数为 \_\_l2。函数最终会将 \_\_first 到 \_\_last 中 min(\_\_l1, \_\_l2) 个最小元素排好序后复制到 \_\_result\_first 到 \_\_result\_last 之间。
+
+如果 \_\_l1 < \_\_l2 函数先将 \_\_first 到 \_\_last 的所有元素复制到 \_\_result\_first 到 \_\_result\_last 之间。否则将 \_\_first 到 \_\_last 的最小的 \_\_l2 个元素复制到 \_\_result\_first 到 \_\_result\_last 之间。
+
+在 \_\_result\_first 到 \_\_result\_real\_last 之间的元素构造一个最大堆。如果 \_\_first 不等于结束标记 \_\_last ，while 循环中不断的将不属于 \_\_first 到 \_\_last 中 min(\_\_l1, \_\_l2) 个最小元素的元素移出最大堆，并将属于的元素替换进来。退出循环后，\_\_result\_first 到 \_\_result\_real\_last 之间的元素是 \_\_first 到 \_\_last 中 min(\_\_l1, \_\_l2) 个最小元素。最后调用 sort\_heap 对 \_\_result\_first 到 \_\_result\_real\_last 之间的元素进行排序。
+
+
+	template <class _InputIter, class _RandomAccessIter, class _Distance,
+		  class _Tp>
+	_RandomAccessIter __partial_sort_copy(_InputIter __first,
+					      _InputIter __last,
+					      _RandomAccessIter __result_first,
+					      _RandomAccessIter __result_last, 
+					      _Distance*, _Tp*) {
+	  if (__result_first == __result_last) return __result_last;
+	  _RandomAccessIter __result_real_last = __result_first;
+	  while(__first != __last && __result_real_last != __result_last) {
+	    *__result_real_last = *__first;
+	    ++__result_real_last;
+	    ++__first;
+	  }
+	  make_heap(__result_first, __result_real_last);
+	  while (__first != __last) {
+	    if (*__first < *__result_first) 
+	      __adjust_heap(__result_first, _Distance(0),
+			    _Distance(__result_real_last - __result_first),
+			    _Tp(*__first));
+	    ++__first;
+	  }
+	  sort_heap(__result_first, __result_real_last);
+	  return __result_real_last;
+	}
+
+<div class="cut"></div> 
+
+函数 partial\_sort\_copy 将 \_\_first 到 \_\_last 中部分排序的内容复制到 \_\_result\_first 到 \_\_result\_last 之间。
+
+	template <class _InputIter, class _RandomAccessIter>
+	inline _RandomAccessIter
+	partial_sort_copy(_InputIter __first, _InputIter __last,
+			  _RandomAccessIter __result_first,
+			  _RandomAccessIter __result_last) {
+	  __STL_REQUIRES(_InputIter, _InputIterator);
+	  __STL_REQUIRES(_RandomAccessIter, _Mutable_RandomAccessIterator);
+	  __STL_CONVERTIBLE(typename iterator_traits<_InputIter>::value_type,
+			    typename iterator_traits<_RandomAccessIter>::value_type);
+	  __STL_REQUIRES(typename iterator_traits<_RandomAccessIter>::value_type,
+			 _LessThanComparable);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter>::value_type,
+			 _LessThanComparable);
+	  return __partial_sort_copy(__first, __last, __result_first, __result_last, 
+				     __DISTANCE_TYPE(__result_first),
+				     __VALUE_TYPE(__first));
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_nth\_element 用来确定如果对 \_\_first 到 \_\_last 之间的元素进行排序，那么 \_\_nth 位置(注意这里 \_\_nth 是一个实际地址，而不是一个像序号一样的索引地址) 所在的元素。函数调用之前定义的 \_\_unguarded\_partition 将 \_\_first 到 \_\_last 之间的内容分割为两部分，使得第一部分的元素都小于第二部分的元素。二者的分割值为 \_\_cut。
+
+然后根据 \_\_cut 和 \_\_nth 的位置更新 \_\_first 和 \_\_last 的值，以保证 \_\_cut 位置所在的元素始终包含在 \_\_first 和 \_\_last 之间。当 \_\_first 和 \_\_last 之间的差值小于 3 时，直接应用插入排序对 \_\_first 到 \_\_last 之间的元素进行排序，此时 \_\_nth 位置的元素即为所求。
+
+	template <class _RandomAccessIter, class _Tp>
+	void __nth_element(_RandomAccessIter __first, _RandomAccessIter __nth,
+			   _RandomAccessIter __last, _Tp*) {
+	  while (__last - __first > 3) {
+	    _RandomAccessIter __cut =
+	      __unguarded_partition(__first, __last,
+				    _Tp(__median(*__first,
+						 *(__first + (__last - __first)/2),
+						 *(__last - 1))));
+	    if (__cut <= __nth)
+	      __first = __cut;
+	    else 
+	      __last = __cut;
+	  }
+	  __insertion_sort(__first, __last);
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_nth\_element 求如果将 \_\_first 到 \_\_last 之间的元素进行排序，位置 \_\_nth 上所在的元素。
+
+	template <class _RandomAccessIter>
+	inline void nth_element(_RandomAccessIter __first, _RandomAccessIter __nth,
+				_RandomAccessIter __last) {
+	  __STL_REQUIRES(_RandomAccessIter, _Mutable_RandomAccessIterator);
+	  __STL_REQUIRES(typename iterator_traits<_RandomAccessIter>::value_type,
+			 _LessThanComparable);
+	  __nth_element(__first, __nth, __last, __VALUE_TYPE(__first));
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_lower\_bound 求 \_\_first 到 \_\_last 之间的有序序列中从 \_\_first 开始第一个第一个大于或者等于给定值 \_\_val 的位置。如果大于等于 \_\_val 的值存在，则返回从 \_\_first 开始第一个大于等于 \_\_val 的元素的位置。否则返回值为 \_\_last 。
+
+	template <class _ForwardIter, class _Tp, class _Distance>
+	_ForwardIter __lower_bound(_ForwardIter __first, _ForwardIter __last,
+				   const _Tp& __val, _Distance*) 
+	{
+	  _Distance __len = 0;
+	  distance(__first, __last, __len);
+	  _Distance __half;
+	  _ForwardIter __middle;
+
+	  while (__len > 0) {
+	    __half = __len >> 1;
+	    __middle = __first;
+	    advance(__middle, __half);
+	    if (*__middle < __val) {
+	      __first = __middle;
+	      ++__first;
+	      __len = __len - __half - 1;
+	    }
+	    else
+	      __len = __half;
+	  }
+	  return __first;
+	}
+
+<div class="cut"></div> 
+
+函数 lower\_bound 返回从 \_\_first 开始第一个大于或者等于 \_\_val 的元素的位置。函数调用 \_\_lower\_bound 来实现。
+
+	template <class _ForwardIter, class _Tp>
+	inline _ForwardIter lower_bound(_ForwardIter __first, _ForwardIter __last,
+					const _Tp& __val) {
+	  __STL_REQUIRES(_ForwardIter, _ForwardIterator);
+	  __STL_REQUIRES_SAME_TYPE(_Tp,
+	      typename iterator_traits<_ForwardIter>::value_type);
+	  __STL_REQUIRES(_Tp, _LessThanComparable);
+	  return __lower_bound(__first, __last, __val,
+			       __DISTANCE_TYPE(__first));
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_upper\_bound 返回 \_\_first 到 \_\_last 的有序序列中从 \_\_first 开始第一个大于给定值 \_\_val 的元素的位置。如果存在大于 \_\_val 的元素，则返回从 \_\_first 开始第一个大于给定值 \_\_val 的元素的位置。 否则返回值为 \_\_last 。
+
+	template <class _ForwardIter, class _Tp, class _Distance>
+	_ForwardIter __upper_bound(_ForwardIter __first, _ForwardIter __last,
+				   const _Tp& __val, _Distance*)
+	{
+	  _Distance __len = 0;
+	  distance(__first, __last, __len);
+	  _Distance __half;
+	  _ForwardIter __middle;
+
+	  while (__len > 0) {
+	    __half = __len >> 1;
+	    __middle = __first;
+	    advance(__middle, __half);
+	    if (__val < *__middle)
+	      __len = __half;
+	    else {
+	      __first = __middle;
+	      ++__first;
+	      __len = __len - __half - 1;
+	    }
+	  }
+	  return __first;
+	}
+
+<div class="cut"></div> 
+
+函数 upper\_bound 返回从 \_\_first 到 \_\_last 的有序序列中第一个大于 \_\_val 的元素的位置。
+
+	template <class _ForwardIter, class _Tp>
+	inline _ForwardIter upper_bound(_ForwardIter __first, _ForwardIter __last,
+					const _Tp& __val) {
+	  __STL_REQUIRES(_ForwardIter, _ForwardIterator);
+	  __STL_REQUIRES_SAME_TYPE(_Tp,
+	      typename iterator_traits<_ForwardIter>::value_type);
+	  __STL_REQUIRES(_Tp, _LessThanComparable);
+	  return __upper_bound(__first, __last, __val,
+			       __DISTANCE_TYPE(__first));
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_equal\_range 返回有序序列中值等于 \_\_val 的序列的起始和截止位置(起始位置的元素值为 \_\_val，但结束位置的元素值不为 \_\_val)。
+
+也是用二分法，通过取中间元素的值和 \_\_val 进行对比，并根据比对大小，来更新 \_\_first 和 \_\_len 的值。如果存在等于 \_\_val 的元素，那么等于 \_\_val 的元素组成的序列在整个循环过程中都在 \_\_first 到 \_\_first + len 之间。
+
+循环过程中如果找到一个等于 \_\_val 的元素，则调用 lower\_bound 和 upper\_bound 函数，两个函数的返回值就分别为等于 \_\_val 的元素序列的起始位置和截止位置。如果 \_\_first 到 \_\_last 之间不存在等于 \_\_val 的元素，则返回值为 pair(\_\_last, \_\_last)
+
+	template <class _ForwardIter, class _Tp, class _Distance>
+	pair<_ForwardIter, _ForwardIter>
+	__equal_range(_ForwardIter __first, _ForwardIter __last, const _Tp& __val,
+		      _Distance*)
+	{
+	  _Distance __len = 0;
+	  distance(__first, __last, __len);
+	  _Distance __half;
+	  _ForwardIter __middle, __left, __right;
+
+	  while (__len > 0) {
+	    __half = __len >> 1;
+	    __middle = __first;
+	    advance(__middle, __half);
+	    if (*__middle < __val) {
+	      __first = __middle;
+	      ++__first;
+	      __len = __len - __half - 1;
+	    }
+	    else if (__val < *__middle)
+	      __len = __half;
+	    else {
+	      __left = lower_bound(__first, __middle, __val);
+	      advance(__first, __len);
+	      __right = upper_bound(++__middle, __first, __val);
+	      return pair<_ForwardIter, _ForwardIter>(__left, __right);
+	    }
+	  }
+	  return pair<_ForwardIter, _ForwardIter>(__first, __first);
+	}
+
+<div class="cut"></div> 
+
+函数 equal\_range 返回从 \_\_first 到 \_\_last 的有序序列中值等于 \_\_val 的元素序列的起始位置和截止位置。
+
+	template <class _ForwardIter, class _Tp>
+	inline pair<_ForwardIter, _ForwardIter>
+	equal_range(_ForwardIter __first, _ForwardIter __last, const _Tp& __val) {
+	  __STL_REQUIRES(_ForwardIter, _ForwardIterator);
+	  __STL_REQUIRES_SAME_TYPE(_Tp, 
+	       typename iterator_traits<_ForwardIter>::value_type);
+	  __STL_REQUIRES(_Tp, _LessThanComparable);
+	  return __equal_range(__first, __last, __val,
+			       __DISTANCE_TYPE(__first));
+	}
+
+<div class="cut"></div> 
+
+函数 binary\_search 在从 \_\_first 到 \_\_last 的有序序列中查找等于 \_\_val 的元素，函数调用 lower\_bound 函数来实现，如果存在等于 \_\_val 的元素，则lower\_bound 的会返回一个值为 \_\_val 的位置，否则会返回 \_\_last 或者一个值大于 \_\_val 的位置。通过判断 lower\_bound 的返回值可以判断 \_\_first 到 \_\_last 之间是否存在值为 \_\_val 的元素。
+
+	template <class _ForwardIter, class _Tp>
+	bool binary_search(_ForwardIter __first, _ForwardIter __last,
+			   const _Tp& __val) {
+	  __STL_REQUIRES(_ForwardIter, _ForwardIterator);
+	  __STL_REQUIRES_SAME_TYPE(_Tp,
+		typename iterator_traits<_ForwardIter>::value_type);
+	  __STL_REQUIRES(_Tp, _LessThanComparable);
+	  _ForwardIter __i = lower_bound(__first, __last, __val);
+	  return __i != __last && !(__val < *__i);
+	}
+
+<div class="cut"></div> 
+
+函数 merge 将从 \_\_first1 到 \_\_last1 的有序序列和从 \_\_first2 到 \_\_last2 的有序序列进行合并。并且将合并的结果存储在 \_\_result 开始的位置。
+
+	template <class _InputIter1, class _InputIter2, class _OutputIter>
+	_OutputIter merge(_InputIter1 __first1, _InputIter1 __last1,
+			  _InputIter2 __first2, _InputIter2 __last2,
+			  _OutputIter __result) {
+	  __STL_REQUIRES(_InputIter1, _InputIterator);
+	  __STL_REQUIRES(_InputIter2, _InputIterator);
+	  __STL_REQUIRES(_OutputIter, _OutputIterator);
+	  __STL_REQUIRES_SAME_TYPE(
+		  typename iterator_traits<_InputIter1>::value_type,
+		  typename iterator_traits<_InputIter2>::value_type);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter1>::value_type,
+			 _LessThanComparable);
+	  while (__first1 != __last1 && __first2 != __last2) {
+	    if (*__first2 < *__first1) {
+	      *__result = *__first2;
+	      ++__first2;
+	    }
+	    else {
+	      *__result = *__first1;
+	      ++__first1;
+	    }
+	    ++__result;
+	  }
+	  return copy(__first2, __last2, copy(__first1, __last1, __result));
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_merge\_without\_buffer 将从 \_\_first 到 \_\_middle 的有序序列和从 \_\_middle 到 \_\_last 的有序序列进行合并，使得合并之后从 \_\_first 到 \_\_last 的序列是有序的。
+
+令 \_\_len1 为 \_\_first 到 \_\_middle 的距离，\_\_len2 为 \_\_middle 到 \_\_last 的距离。如果 \_\_len1 > \_\_len2 ，令 \_\_len11 = \_\_len1 / 2。令 \_\_first\_cut 为 \_\_first 之后的第 \_\_len11 个位置。令 second\_cut 为 \_\_middle 到 \_\_last 之间第一个大于或者等于 \_\_first\_cut 所在位置的元素的位置。
+
+然后将 \_\_first\_cut 到 \_\_middle 之间的内容和 \_\_middle 到 \_\_last 之间的内容通过 rotate 函数进行交换。返回值为 \_\_new\_middle。则此时 \_\_first 到 \_\_new\_middle 之间的元素(小于或者等于交换之前 \_\_first\_cut 位置的元素值)都小于或者等于 \_\_new\_middle 到 \_\_last 之间的元素(大于或者等于交换之前 \_\_first\_cut 所在位置的元素的元素值)。则递归的对 \_\_first 到 \_\_new\_middle 和 \_\_new\_middle 到 \_\_last 之间的元素调用 \_\_merge\_without\_buffer 进行合并就可以了。
+
+	template <class _BidirectionalIter, class _Distance>
+	void __merge_without_buffer(_BidirectionalIter __first,
+				    _BidirectionalIter __middle,
+				    _BidirectionalIter __last,
+				    _Distance __len1, _Distance __len2) {
+	  if (__len1 == 0 || __len2 == 0)
+	    return;
+	  if (__len1 + __len2 == 2) {
+	    if (*__middle < *__first)
+	      iter_swap(__first, __middle);
+	    return;
+	  }
+	  _BidirectionalIter __first_cut = __first;
+	  _BidirectionalIter __second_cut = __middle;
+	  _Distance __len11 = 0;
+	  _Distance __len22 = 0;
+	  if (__len1 > __len2) {
+	    __len11 = __len1 / 2;
+	    advance(__first_cut, __len11);
+	    __second_cut = lower_bound(__middle, __last, *__first_cut);
+	    distance(__middle, __second_cut, __len22);
+	  }
+	  else {
+	    __len22 = __len2 / 2;
+	    advance(__second_cut, __len22);
+	    __first_cut = upper_bound(__first, __middle, *__second_cut);
+	    distance(__first, __first_cut, __len11);
+	  }
+	  _BidirectionalIter __new_middle
+	    = rotate(__first_cut, __middle, __second_cut);
+	  __merge_without_buffer(__first, __first_cut, __new_middle,
+				 __len11, __len22);
+	  __merge_without_buffer(__new_middle, __second_cut, __last, __len1 - __len11,
+				 __len2 - __len22);
+	}
+
+
+<div class="cut"></div>
+
+[STL 的 算法 (algo) 分析（一）](../25/algo1.html)</br>
+[STL 的 算法 (algo) 分析（二）](../25/algo2.html)</br>
+[STL 的 算法 (algo) 分析（三）](../25/algo3.html)</br>
+[STL 的 算法 (algo) 分析（四）](../25/algo4.html)</br>
+[STL 的 算法 (algo) 分析（五）](../25/algo5.html)</br>
+[STL 的 算法 (algo) 分析（六）](../25/algo6.html)</br>
+[STL 的 算法 (algo) 分析（七）](../25/algo7.html)</br>
+[STL 的 算法 (algo) 分析（八）](../25/algo8.html)</br>

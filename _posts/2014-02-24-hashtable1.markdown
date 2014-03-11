@@ -1,0 +1,258 @@
+---
+title: STL 的 hashtable 分析（一）
+layout: post
+key: 729f3e5e-d14d-434c-a48b-567cbc321166
+tags:
+  -hashtable 
+  -STL
+---
+stl\_hashtable.h 用来实现 hash 表，采用的是拉链法来解决碰撞。
+
+<div class="cut"></div>
+
+\_Hashtable\_node 用来存储 hash 表中的具体节点。
+
+	template <class _Val>
+	struct _Hashtable_node
+	{
+	  _Hashtable_node* _M_next;
+	  _Val _M_val;
+	};  
+
+<div class="cut"></div>
+
+stl\_hashtable.h 在开始出给出了 hashtable 的一个声明，因为在接下来的类模板 \_Hashtable\_iterator 中要使用它。
+
+hashtable 有六个模板形参，其中 \_Val 用来表示节点值的类型， \_Key 用来表示节点值中的关键值类型，\_HashFcn 用来计算节点的关键值的 hash 值。\_ExtractKey 用来获取给定节点的节点值中的关键值，\_EqualKey 用来判断两个给定的关键值是否相等，\_Alloc 用来为 hashtable 中的节点分配和回收内存。
+
+	template <class _Val, class _Key, class _HashFcn,
+		  class _ExtractKey, class _EqualKey, class _Alloc = alloc>
+	class hashtable;
+
+<div class="cut"></div>
+
+类模板 \_Hashtable\_iterator 也有六个模板形参，这六个模板形参的意义与 hashtable 的相同。
+
+	template <class _Val, class _Key, class _HashFcn,
+		  class _ExtractKey, class _EqualKey, class _Alloc>
+	struct _Hashtable_iterator {
+
+<div class="cut"></div>
+
+\_Hashtable\_iterator 中定义了两个成员类型 \_Hashtable 和 \_Node 。并定义了两个成员变量，其中 \_M\_cur 为 \_Node 类型的指针，\_M\_ht 为 \_Hashtable 类型的指针。
+
+	  typedef hashtable<_Val,_Key,_HashFcn,_ExtractKey,_EqualKey,_Alloc>
+		  _Hashtable;
+	  typedef _Hashtable_node<_Val> _Node;
+	  _Node* _M_cur;
+	  _Hashtable* _M_ht;
+
+<div class="cut"></div>
+
+\_Hashtable\_iterator 有两个构造函数。其中第一个为空构造函数，第二个根据给定值对成员变量 \_M\_cur 和 \_M\_ht 进行初始化。
+
+	  _Hashtable_iterator() {}
+	  _Hashtable_iterator(_Node* __n, _Hashtable* __tab) 
+	    : _M_cur(__n), _M_ht(__tab) {}
+
+<div class="cut"></div>
+
+函数 operator\*() 用来返回 \_M\_cur 指向的节点的节点值。
+
+	  reference operator*() const { return _M_cur->_M_val; }
+	 
+<div class="cut"></div>
+
+stl\_hashtable.h 中定义了一个枚举变量，其中有一个枚举元素\_\_stl\_num\_primes，其值为 28。\_\_stl\_num\_primes 被作为一个常量使用，同时定义了一个 const unsigned long 类型的数组，数组元素有 28 个素数。
+
+	enum { __stl_num_primes = 28 };
+	static const unsigned long __stl_prime_list[__stl_num_primes] =
+	{
+	  53ul,         97ul,         193ul,       389ul,       769ul,
+	  1543ul,       3079ul,       6151ul,      12289ul,     24593ul,
+	  49157ul,      98317ul,      196613ul,    393241ul,    786433ul,
+	  1572869ul,    3145739ul,    6291469ul,   12582917ul,  25165843ul,
+	  50331653ul,   100663319ul,  201326611ul, 402653189ul, 805306457ul, 
+	  1610612741ul, 3221225473ul, 4294967291ul
+	};
+
+<div class="cut"></div>
+
+函数 \_\_stl\_next\_prime 用来返回 \_\_stl\_prime\_list 中第一个大于或者等于 \_\_n 的素数。如果 \_\_stl\_prime\_list 中最大的素数都比 \_\_n 小，则返回最后一个素数。函数利用 lower\_bound 函数求得 \_\_first 到 \_\_last(不包括 \_\_last) 之间第一个大于或者等于 \_\_n 的位置，lower\_bound 在 stl\_algo.h 中定义。如果 lower\_bound 的返回值为 \_\_last ，则说明位置 \_\_last - 1 的元素都比 \_\_n 都要小，则返回最后一个元素(位置 \_\_last - 1 上的元素)。否则返回 lower\_bound 返回位置上的元素。
+
+	inline unsigned long __stl_next_prime(unsigned long __n)
+	{
+	  const unsigned long* __first = __stl_prime_list;
+	  const unsigned long* __last = __stl_prime_list + (int)__stl_num_primes;
+	  const unsigned long* pos = lower_bound(__first, __last, __n);
+	  return pos == __last ? *(__last - 1) : *pos;
+	}
+
+<div class="cut"></div>
+
+类模板 hashtable 中定义了一些成员类型。其中 key\_type 为 \_Key 的类型别名， value\_type 为 \_Val 的类型别名，hasher 为 \_HashFcn 的类型别名，key\_equal 为 \_EqualKey 的类型别名。
+
+	  typedef _Key key_type;
+	  typedef _Val value_type;
+	  typedef _HashFcn hasher;
+	  typedef _EqualKey key_equal;
+
+<div class="cut"></div>
+
+hashtable 中定义了一个 \_Alloc\_traits<\_Node, \_Alloc>::allocator\_type 类型的成员变量 \_M\_node\_allocator 来为 hashtable 的节点分配和回收内存，其中函数 \_M\_get\_node 用来为 hashtbale 的节点分配内存空间， \_M\_put\_node 用来回收 hashtable 中为某节点分配的内存空间。
+
+	  typename _Alloc_traits<_Node, _Alloc>::allocator_type _M_node_allocator;
+	  _Node* _M_get_node() { return _M_node_allocator.allocate(1); }
+	  void _M_put_node(_Node* __p) { _M_node_allocator.deallocate(__p, 1); }
+
+<div class="cut"></div>
+
+同时在 hashtable 中还定义了一些成员变量。\_M\_hash 用来获取给定节点的关键值的 hash 值。 \_M\_equals 用来判断给定的两个关键值是否相等，\_M\_get\_key 用来获取给定节点值中的关键值，\_M\_buckets 用来存储拉链法中的链表头，\_M\_num\_elements 用来存储 hash 表中的节点个数。
+
+	  hasher                _M_hash;
+	  key_equal             _M_equals;
+	  _ExtractKey           _M_get_key;
+	  vector<_Node*,_Alloc> _M_buckets;
+	  size_type             _M_num_elements;
+
+<div class="cut"></div>
+
+构造函数首先在初始化列表中用给定值对 hashtable 中的成员变量进行初始化，然后调用 \_M\_initialize\_buckets(\_\_n) 来为 \_M\_buckets 初始化 \_\_n 个节点。并且初始化后 \_M\_buckets 的节点值都为空指针。
+
+	  hashtable(size_type __n,
+		    const _HashFcn&    __hf,
+		    const _EqualKey&   __eql,
+		    const _ExtractKey& __ext,
+		    const allocator_type& __a = allocator_type())
+	    : __HASH_ALLOC_INIT(__a)
+	      _M_hash(__hf),
+	      _M_equals(__eql),
+	      _M_get_key(__ext),
+	      _M_buckets(__a),
+	      _M_num_elements(0)
+	  {
+	    _M_initialize_buckets(__n);
+	  }
+
+<div class="cut"></div>
+
+构造函数在初始化列表中用给定值对成员变量进行初始化，除了 \_M\_get\_key 用 \_ExtractKey 的缺省值初始化。然后在函数体中调用 \_M\_initialize\_buckets 对 \_M\_buckets 进行初始化。
+
+	  hashtable(size_type __n,
+		    const _HashFcn&    __hf,
+		    const _EqualKey&   __eql,
+		    const allocator_type& __a = allocator_type())
+	    : __HASH_ALLOC_INIT(__a)
+	      _M_hash(__hf),
+	      _M_equals(__eql),
+	      _M_get_key(_ExtractKey()),
+	      _M_buckets(__a),
+	      _M_num_elements(0)
+	  {
+	    _M_initialize_buckets(__n);
+	  }
+
+<div class="cut"></div>
+
+拷贝构造函数用给定 hash 表 \_\_ht 中的成员来初始化当前 hash 表。并调用 \_M\_copy\_from 将 \_\_ht 中的节点拷贝到当前 hash 表。\_M\_copy\_from 中还会对成员变量 \_M\_num\_elements 进行更新。
+
+	  hashtable(const hashtable& __ht)
+	    : __HASH_ALLOC_INIT(__ht.get_allocator())
+	      _M_hash(__ht._M_hash),
+	      _M_equals(__ht._M_equals),
+	      _M_get_key(__ht._M_get_key),
+	      _M_buckets(__ht.get_allocator()),
+	      _M_num_elements(0)
+	  {
+	    _M_copy_from(__ht);
+	  }
+
+<div class="cut"></div>
+
+operator= 用来将给定 hash 表 \_\_ht 中的节点复制到当前 hash 表中，函数首先将当前 hash 表清空，并且用给定 hash 表中的成员变量来更新当前 hash 表中的成员变量，最后用 \_M\_copy\_from 将 \_\_ht 中的节点复制到当前 hash 表中，并更新 \_M\_num\_elements
+
+	  hashtable& operator= (const hashtable& __ht)
+	  {
+	    if (&__ht != this) {
+	      clear();
+	      _M_hash = __ht._M_hash;
+	      _M_equals = __ht._M_equals;
+	      _M_get_key = __ht._M_get_key;
+	      _M_copy_from(__ht);
+	    }
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+析构函数中会对 hash 表中的所有节点进行销毁，并释放所有节点所占用的空间。
+
+	  ~hashtable() { clear(); }
+
+<div class="cut"></div>
+
+函数 size 用来获取 hash 表中节点的个数，通过 \_M\_num\_elements 可以获得。
+
+	  size_type size() const { return _M_num_elements; }
+
+<div class="cut"></div>
+
+函数 empty 用来判断给定 hash 表是否为空。
+
+	  bool empty() const { return size() == 0; }
+
+<div class="cut"></div>
+
+函数 swap 用来交换两个 hash 表的内容，通过交换对应 hash 表的成员即可。
+
+	  void swap(hashtable& __ht)
+	  {
+	    __STD::swap(_M_hash, __ht._M_hash);
+	    __STD::swap(_M_equals, __ht._M_equals);
+	    __STD::swap(_M_get_key, __ht._M_get_key);
+	    _M_buckets.swap(__ht._M_buckets);
+	    __STD::swap(_M_num_elements, __ht._M_num_elements);
+	  }
+
+<div class="cut"></div>
+
+函数 begin 用来获取 hash 表中的第一个节点，从 \_M\_buckets[0] 开始首先找到一个不为空的元素，该元素作为链表头所链接而成的表中所有元素的关键值的 hash 值是相同的，将该链表中的第一个节点作为 hash 表的第一个节点，用该节点和当前 hash 表构造迭代器作为函数的返回值。
+
+	  iterator begin()
+	  { 
+	    for (size_type __n = 0; __n < _M_buckets.size(); ++__n)
+	      if (_M_buckets[__n])
+		return iterator(_M_buckets[__n], this);
+	    return end();
+	  }
+
+<div class="cut"></div>
+
+函数 end 用来返回作为 hash 表结束标记的迭代器。hash 表中将空指针和当前 hash 表构造而成的迭代器作为结束标记的迭代器。
+
+	  iterator end() { return iterator(0, this); }
+
+<div class="cut"></div>
+
+函数 bucket\_count 返回 hash 表中一共有多少个 bucket 可以用来存储节点，每一个 bucket 对应一个链表，每个链表中的元素都具有相同的 hash 值(某些 bucket 可能对应一个空链表)。
+
+	  size_type bucket_count() const { return _M_buckets.size(); }
+
+<div class="cut"></div>
+
+函数 elems\_in\_bucket 用来返回由 \_M\_buckests 中的第 \_\_bucket 个元素所链接而成的链表中有多少个节点。
+
+	  size_type elems_in_bucket(size_type __bucket) const
+	  {
+	    size_type __result = 0;
+	    for (_Node* __cur = _M_buckets[__bucket]; __cur; __cur = __cur->_M_next)
+	      __result += 1;
+	    return __result;
+	  }
+
+<div class="cut"></div>
+
+[STL 的 hashtable 分析（一）](../24/hashtable1.html)</br>
+[STL 的 hashtable 分析（二）](../24/hashtable2.html)</br>
+[STL 的 hashtable 分析（三）](../24/hashtable3.html)</br>
+[STL 的 hashtable 分析（四）](../24/hashtable4.html)</br>

@@ -1,0 +1,321 @@
+---
+title: STL 的算法(algo) 分析（七）
+layout: post
+key: 6d6694f2-4598-49aa-9bc2-a3fe9fe7a158
+tags:
+  -algo 
+  -STL 
+---
+
+
+\_\_rotate\_adaptive 函数将 \_\_first 到 \_\_middle 和 \_\_middle 到 \_\_last 之间的内容进行调换。其中 \_\_len1 为 \_\_first 到 \_\_middle 的距离，\_\_len2 为 \_\_middle 到 \_\_last 的距离。函数提供了起始地址为 \_\_buffer，长度为 \_\_buffer\_size 的辅助空间以供使用。
+
+如果 \_\_len2 <= \_\_buffer\_size，则先将 \_\_middle 到 \_\_last 的部分拷贝到 \_\_buffer 开始的位置，然后将 \_\_first 到 \_\_middle 的部分复制到辅助空间 \_\_buffer 中，再将 \_\_first 到 \_\_middle 的部分调用 copy\_backward 函数复制到以 \_\_last 为结束位置的空间上(copy\_backward 是从给定区域的后面向前复制)。最后将 \_\_buffer 中的内容复制到从 \_\_first 开始的位置。对于 \_\_len1 < \_\_buffer\_size 的情况也是调用 copy 和 copy\_backward 函数来将两段内容进行交换。如果 \_\_buffer\_size 的长度比 \_\_len1 和 \_\_len2 都小，则调用 rotate 函数对 两段内容进行原地的交换。
+
+	template <class _BidirectionalIter1, class _BidirectionalIter2,
+		  class _Distance>
+	_BidirectionalIter1 __rotate_adaptive(_BidirectionalIter1 __first,
+					      _BidirectionalIter1 __middle,
+					      _BidirectionalIter1 __last,
+					      _Distance __len1, _Distance __len2,
+					      _BidirectionalIter2 __buffer,
+					      _Distance __buffer_size) {
+	  _BidirectionalIter2 __buffer_end;
+	  if (__len1 > __len2 && __len2 <= __buffer_size) {
+	    __buffer_end = copy(__middle, __last, __buffer);
+	    copy_backward(__first, __middle, __last);
+	    return copy(__buffer, __buffer_end, __first);
+	  }
+	  else if (__len1 <= __buffer_size) {
+	    __buffer_end = copy(__first, __middle, __buffer);
+	    copy(__middle, __last, __first);
+	    return copy_backward(__buffer, __buffer_end, __last);
+	  }
+	  else
+	    return rotate(__first, __middle, __last);
+	}
+
+<div class="cut"></div> 
+
+函数 merge\_backward 将 \_\_first1 到 \_\_last1 之间的内容和 \_\_first2 到 \_\_last2 之间的内容进行合并。但合并的顺序是从后往前进行。
+
+	template <class _BidirectionalIter1, class _BidirectionalIter2,
+		  class _BidirectionalIter3>
+	_BidirectionalIter3 __merge_backward(_BidirectionalIter1 __first1,
+					     _BidirectionalIter1 __last1,
+					     _BidirectionalIter2 __first2,
+					     _BidirectionalIter2 __last2,
+					     _BidirectionalIter3 __result) {
+	  if (__first1 == __last1)
+	    return copy_backward(__first2, __last2, __result);
+	  if (__first2 == __last2)
+	    return copy_backward(__first1, __last1, __result);
+	  --__last1;
+	  --__last2;
+	  while (true) {
+	    if (*__last2 < *__last1) {
+	      *--__result = *__last1;
+	      if (__first1 == __last1)
+		return copy_backward(__first2, ++__last2, __result);
+	      --__last1;
+	    }
+	    else {
+	      *--__result = *__last2;
+	      if (__first2 == __last2)
+		return copy_backward(__first1, ++__last1, __result);
+	      --__last2;
+	    }
+	  }
+	}
+
+<div class="cut"></div> 
+
+函数 merge\_adaptive 将从 \_\_first 到 \_\_middle 和从 \_\_middle 到 \_\_last 的有序序列进行合并。函数根据辅助空间的长度来决定选用不同的合并方式，具体的合并方式和合并策略都是之前提到过的。
+
+	template <class _BidirectionalIter, class _Distance, class _Pointer>
+	void __merge_adaptive(_BidirectionalIter __first,
+			      _BidirectionalIter __middle, 
+			      _BidirectionalIter __last,
+			      _Distance __len1, _Distance __len2,
+			      _Pointer __buffer, _Distance __buffer_size) {
+	  if (__len1 <= __len2 && __len1 <= __buffer_size) {
+	    _Pointer __buffer_end = copy(__first, __middle, __buffer);
+	    merge(__buffer, __buffer_end, __middle, __last, __first);
+	  }
+	  else if (__len2 <= __buffer_size) {
+	    _Pointer __buffer_end = copy(__middle, __last, __buffer);
+	    __merge_backward(__first, __middle, __buffer, __buffer_end, __last);
+	  }
+	  else {
+	    _BidirectionalIter __first_cut = __first;
+	    _BidirectionalIter __second_cut = __middle;
+	    _Distance __len11 = 0;
+	    _Distance __len22 = 0;
+	    if (__len1 > __len2) {
+	      __len11 = __len1 / 2;
+	      advance(__first_cut, __len11);
+	      __second_cut = lower_bound(__middle, __last, *__first_cut);
+	      distance(__middle, __second_cut, __len22); 
+	    }
+	    else {
+	      __len22 = __len2 / 2;
+	      advance(__second_cut, __len22);
+	      __first_cut = upper_bound(__first, __middle, *__second_cut);
+	      distance(__first, __first_cut, __len11);
+	    }
+	    _BidirectionalIter __new_middle =
+	      __rotate_adaptive(__first_cut, __middle, __second_cut, __len1 - __len11,
+				__len22, __buffer, __buffer_size);
+	    __merge_adaptive(__first, __first_cut, __new_middle, __len11,
+			     __len22, __buffer, __buffer_size);
+	    __merge_adaptive(__new_middle, __second_cut, __last, __len1 - __len11,
+			     __len2 - __len22, __buffer, __buffer_size);
+	  }
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_inplace\_merge\_aux 将从 \_\_first 到 \_\_middle 和从 middle 到 \_\_last 的有序序列进行合并。合并时申请适当长度的临时空间，如果申请失败调用 \_\_merge\_without\_buffer。否则调用 \_\_merge\_adaptive 进行合并。
+
+	template <class _BidirectionalIter, class _Tp, class _Distance>
+	inline void __inplace_merge_aux(_BidirectionalIter __first,
+					_BidirectionalIter __middle,
+					_BidirectionalIter __last, _Tp*, _Distance*) {
+	  _Distance __len1 = 0;
+	  distance(__first, __middle, __len1);
+	  _Distance __len2 = 0;
+	  distance(__middle, __last, __len2);
+
+	  _Temporary_buffer<_BidirectionalIter, _Tp> __buf(__first, __last);
+	  if (__buf.begin() == 0)
+	    __merge_without_buffer(__first, __middle, __last, __len1, __len2);
+	  else
+	    __merge_adaptive(__first, __middle, __last, __len1, __len2,
+			     __buf.begin(), _Distance(__buf.size()));
+	}
+
+<div class="cut"></div> 
+
+函数 inplace\_merge 将从 \_\_first 到 \_\_middle 和从 \_\_middle 到 \_\_last 的有序序列进行合并。
+
+	template <class _BidirectionalIter>
+	inline void inplace_merge(_BidirectionalIter __first,
+				  _BidirectionalIter __middle,
+				  _BidirectionalIter __last) {
+	  __STL_REQUIRES(_BidirectionalIter, _Mutable_BidirectionalIterator);
+	  __STL_REQUIRES(typename iterator_traits<_BidirectionalIter>::value_type,
+			 _LessThanComparable);
+	  if (__first == __middle || __middle == __last)
+	    return;
+	  __inplace_merge_aux(__first, __middle, __last,
+			      __VALUE_TYPE(__first), __DISTANCE_TYPE(__first));
+	}
+
+
+<div class="cut"></div> 
+
+函数 includes 用来判断 \_\_first2 到 \_\_last2 的元素序列是否包含在 \_\_first1 到 \_\_last1 中的元素序列中。其中 \_\_first2 到 \_\_last2 的元素序列是有序的， \_\_first1 到 \_\_last1 的元素序列是有序的。
+
+	template <class _InputIter1, class _InputIter2>
+	bool includes(_InputIter1 __first1, _InputIter1 __last1,
+		      _InputIter2 __first2, _InputIter2 __last2) {
+	  __STL_REQUIRES(_InputIter1, _InputIterator);
+	  __STL_REQUIRES(_InputIter2, _InputIterator);
+	  __STL_REQUIRES_SAME_TYPE(
+	       typename iterator_traits<_InputIter1>::value_type,
+	       typename iterator_traits<_InputIter2>::value_type);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter1>::value_type,
+			 _LessThanComparable);
+	  while (__first1 != __last1 && __first2 != __last2)
+	    if (*__first2 < *__first1)
+	      return false;
+	    else if(*__first1 < *__first2) 
+	      ++__first1;
+	    else
+	      ++__first1, ++__first2;
+
+	  return __first2 == __last2;
+	}
+
+<div class="cut"></div> 
+
+函数 set\_union 将 \_\_first1 到 \_\_last1 之间的内容和 \_\_first2 到 \_\_last2 之间的内容进行合并，但这里的合并是集合的并，对于二者相交的元素，只保留其中的一个。合并的结果最后存储在以 \_\_result 为起始地址的地址空间。其中 \_\_first1 到 \_\_last1 的元素序列是有序的， \_\_first2 到 \_\_last2 的元素序列是有序的。函数中最后合并所得的结果也是有序的。
+
+	template <class _InputIter1, class _InputIter2, class _OutputIter>
+	_OutputIter set_union(_InputIter1 __first1, _InputIter1 __last1,
+			      _InputIter2 __first2, _InputIter2 __last2,
+			      _OutputIter __result) {
+	  __STL_REQUIRES(_InputIter1, _InputIterator);
+	  __STL_REQUIRES(_InputIter2, _InputIterator);
+	  __STL_REQUIRES(_OutputIter, _OutputIterator);
+	  __STL_REQUIRES_SAME_TYPE(
+	       typename iterator_traits<_InputIter1>::value_type,
+	       typename iterator_traits<_InputIter2>::value_type);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter1>::value_type,
+			 _LessThanComparable);
+	  while (__first1 != __last1 && __first2 != __last2) {
+	    if (*__first1 < *__first2) {
+	      *__result = *__first1;
+	      ++__first1;
+	    }
+	    else if (*__first2 < *__first1) {
+	      *__result = *__first2;
+	      ++__first2;
+	    }
+	    else {
+	      *__result = *__first1;
+	      ++__first1;
+	      ++__first2;
+	    }
+	    ++__result;
+	  }
+	  return copy(__first2, __last2, copy(__first1, __last1, __result));
+	}
+
+<div class="cut"></div> 
+
+函数 set\_intersection 求 \_\_first1 到 \_\_last1 之间的内容和 \_\_first2 到 \_\_last2 之间的内容的交集。其中 \_\_first1 到 \_\_last1 的元素序列是有序的， \_\_first2 到 \_\_last2 的元素序列是有序的。函数最后所得的交集也是有序的。
+
+	template <class _InputIter1, class _InputIter2, class _OutputIter>
+	_OutputIter set_intersection(_InputIter1 __first1, _InputIter1 __last1,
+				     _InputIter2 __first2, _InputIter2 __last2,
+				     _OutputIter __result) {
+	  __STL_REQUIRES(_InputIter1, _InputIterator);
+	  __STL_REQUIRES(_InputIter2, _InputIterator);
+	  __STL_REQUIRES(_OutputIter, _OutputIterator);
+	  __STL_REQUIRES_SAME_TYPE(
+	       typename iterator_traits<_InputIter1>::value_type,
+	       typename iterator_traits<_InputIter2>::value_type);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter1>::value_type,
+			 _LessThanComparable);
+	  while (__first1 != __last1 && __first2 != __last2) 
+	    if (*__first1 < *__first2) 
+	      ++__first1;
+	    else if (*__first2 < *__first1) 
+	      ++__first2;
+	    else {
+	      *__result = *__first1;
+	      ++__first1;
+	      ++__first2;
+	      ++__result;
+	    }
+	  return __result;
+	}
+
+<div class="cut"></div> 
+
+函数 set\_difference 求 \_\_first1 到 \_\_last1 之间的元素集合与 \_\_first2 到 \_\_last2 之间的元素集合的差(即在 \_\_first1 到 \_\_last1 之间的元素，但不在 \_\_first2 到 \_\_last2 之间的元素)。其中 \_\_first1 到 \_\_last1 的元素序列是有序的， \_\_first2 到 \_\_last2 的元素序列是有序的。最后所得的差集也是有序的。
+
+	template <class _InputIter1, class _InputIter2, class _OutputIter>
+	_OutputIter set_difference(_InputIter1 __first1, _InputIter1 __last1,
+				   _InputIter2 __first2, _InputIter2 __last2,
+				   _OutputIter __result) {
+	  __STL_REQUIRES(_InputIter1, _InputIterator);
+	  __STL_REQUIRES(_InputIter2, _InputIterator);
+	  __STL_REQUIRES(_OutputIter, _OutputIterator);
+	  __STL_REQUIRES_SAME_TYPE(
+	       typename iterator_traits<_InputIter1>::value_type,
+	       typename iterator_traits<_InputIter2>::value_type);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter1>::value_type,
+			 _LessThanComparable);
+	  while (__first1 != __last1 && __first2 != __last2)
+	    if (*__first1 < *__first2) {
+	      *__result = *__first1;
+	      ++__first1;
+	      ++__result;
+	    }
+	    else if (*__first2 < *__first1)
+	      ++__first2;
+	    else {
+	      ++__first1;
+	      ++__first2;
+	    }
+	  return copy(__first1, __last1, __result);
+	}
+
+<div class="cut"></div> 
+
+函数 set\_symmetric\_difference 求 \_\_first1 到 \_\_last1 之间的元素集合与 \_\_first2 到 \_\_last2 之间的元素集合的对称差集。即不同时在 \_\_first1 到 \_\_last1 之间的元素集合和 \_\_first2 到 \_\_last2 之间的元素集合中的元素。其中 \_\_first1 到 \_\_last1 的元素序列是有序的， \_\_first2 到 \_\_last2 的元素序列是有序的。最后所得的对称差集也是有序的。
+
+	template <class _InputIter1, class _InputIter2, class _OutputIter>
+	_OutputIter 
+	set_symmetric_difference(_InputIter1 __first1, _InputIter1 __last1,
+				 _InputIter2 __first2, _InputIter2 __last2,
+				 _OutputIter __result) {
+	  __STL_REQUIRES(_InputIter1, _InputIterator);
+	  __STL_REQUIRES(_InputIter2, _InputIterator);
+	  __STL_REQUIRES(_OutputIter, _OutputIterator);
+	  __STL_REQUIRES_SAME_TYPE(
+	       typename iterator_traits<_InputIter1>::value_type,
+	       typename iterator_traits<_InputIter2>::value_type);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter1>::value_type,
+			 _LessThanComparable);
+	  while (__first1 != __last1 && __first2 != __last2)
+	    if (*__first1 < *__first2) {
+	      *__result = *__first1;
+	      ++__first1;
+	      ++__result;
+	    }
+	    else if (*__first2 < *__first1) {
+	      *__result = *__first2;
+	      ++__first2;
+	      ++__result;
+	    }
+	    else {
+	      ++__first1;
+	      ++__first2;
+	    }
+	  return copy(__first2, __last2, copy(__first1, __last1, __result));
+	}
+
+
+<div class="cut"></div>
+
+[STL 的 算法 (algo) 分析（一）](../25/algo1.html)</br>
+[STL 的 算法 (algo) 分析（二）](../25/algo2.html)</br>
+[STL 的 算法 (algo) 分析（三）](../25/algo3.html)</br>
+[STL 的 算法 (algo) 分析（四）](../25/algo4.html)</br>
+[STL 的 算法 (algo) 分析（五）](../25/algo5.html)</br>
+[STL 的 算法 (algo) 分析（六）](../25/algo6.html)</br>
+[STL 的 算法 (algo) 分析（七）](../25/algo7.html)</br>
+[STL 的 算法 (algo) 分析（八）](../25/algo8.html)</br>

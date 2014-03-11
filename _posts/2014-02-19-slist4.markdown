@@ -1,0 +1,239 @@
+---
+title: STL 的 slist 分析（四）
+layout: post
+key: 13021385-5b0e-41d1-b0e8-faa9d0e52eaf
+tags:
+  -slist 
+  -STL
+---
+
+函数 erase\_after 将迭代器 \_\_pos 指向的节点之后的节点删除。调用 \_M\_erase\_after 函数进行实现。函数的返回值是指向被删除节点之后那个节点的迭代器。
+
+	  iterator erase_after(iterator __pos) {
+	    return iterator((_Node*) this->_M_erase_after(__pos._M_node));
+	  }
+
+<div class="cut"></div>
+
+函数 erase\_after 将从 \_\_before\_first 的下一个节点开始，到 \_\_last为止(不包括 \_\_last) 的所有节点删除。调用 \_M\_erase\_after 来实现。
+
+	  iterator erase_after(iterator __before_first, iterator __last) {
+	    return iterator((_Node*) this->_M_erase_after(__before_first._M_node, 
+							  __last._M_node));
+	  } 
+	  
+<div class="cut"></div>
+
+函数 erase 删除 \_\_pos 指向的节点。首先通过 \_\_slist\_previous 获取 \_\_pos 指向的节点之前的节点。然后调用 \_M\_erase\_after 函数。
+
+	  iterator erase(iterator __pos) {
+	    return (_Node*) this->_M_erase_after(__slist_previous(&this->_M_head, 
+								  __pos._M_node));
+	  }
+
+<div class="cut"></div>
+
+下面的 erase 函数删除从 \_\_first 开始到 \_\_last 截止(不包括 \_\_last 指向的节点) 所有节点。
+
+	  iterator erase(iterator __first, iterator __last) {
+	    return (_Node*) this->_M_erase_after(
+	      __slist_previous(&this->_M_head, __first._M_node), __last._M_node);
+	  }
+
+<div class="cut"></div>
+
+resize 函数用来重新调整 slist 的节点个数，如果节点数超过要求的个数 \_\_len，则保留 slist 的前 \_\_len 个节点，后续的节点都予以删除，如果节点数不超过 \_\_len，那么在 slist 的尾部插入适当个数的值为 \_\_x 的节点，以使得 slist 的节点数为 \_\_len。
+
+	template <class _Tp, class _Alloc>
+	void slist<_Tp,_Alloc>::resize(size_type __len, const _Tp& __x)
+	{
+	  _Node_base* __cur = &this->_M_head;
+	  while (__cur->_M_next != 0 && __len > 0) {
+	    --__len;
+	    __cur = __cur->_M_next;
+	  }
+	  if (__cur->_M_next) 
+	    this->_M_erase_after(__cur, 0);
+	  else
+	    _M_insert_after_fill(__cur, __len, __x);
+	}
+
+<div class="cut"></div>
+
+clear 函数用来将整个 slist 清空。
+
+	  void clear() { this->_M_erase_after(&this->_M_head, 0); }
+
+<div class="cut"></div>
+
+函数 splice\_after 将从 \_\_before\_first 之后的节点开始到 \_\_before\_last 为止的节点(包括 \_\_before\_last) 的一段粘贴到 \_\_pos 指向的节点之后。这里的粘贴，可以看成是一种剪切之后的粘贴，而不是复制之后的粘贴，因为被粘贴的部分在原来的位置被移除了。
+
+	  void splice_after(iterator __pos, 
+			    iterator __before_first, iterator __before_last)
+	  {
+	    if (__before_first != __before_last) 
+	      __slist_splice_after(__pos._M_node, __before_first._M_node, 
+				   __before_last._M_node);
+	  }
+
+<div class="cut"></div>
+
+函数 splice\_after 将 \_\_pre 指向的节点之后的节点粘贴到 \_\_pos 指向的节点之后。
+
+	  void splice_after(iterator __pos, iterator __prev)
+	  {
+	    __slist_splice_after(__pos._M_node,
+				 __prev._M_node, __prev._M_node->_M_next);
+	  }
+
+<div class="cut"></div>
+
+函数 splice\_after 将单链表 \_\_x 中的内容全部粘贴到 \_\_pos 指向的节点之后。\_\_x 被置为空链表。
+
+	  void splice_after(iterator __pos, slist& __x)
+	  {
+	    __slist_splice_after(__pos._M_node, &__x._M_head);
+	  }
+
+<div class="cut"></div>
+
+函数 splice 用来将 \_\_x 中的内容粘贴到 \_\_pos 之前。
+
+	  void splice(iterator __pos, slist& __x) {
+	    if (__x._M_head._M_next)
+	      __slist_splice_after(__slist_previous(&this->_M_head, __pos._M_node),
+				   &__x._M_head, __slist_previous(&__x._M_head, 0));
+	  }
+
+<div class="cut"></div>
+
+函数 splice 将 \_\_x 中位置 \_\_i 上的节点插入到 \_\_pos 指向的节点之前。
+
+	  void splice(iterator __pos, slist& __x, iterator __i) {
+	    __slist_splice_after(__slist_previous(&this->_M_head, __pos._M_node),
+				 __slist_previous(&__x._M_head, __i._M_node),
+				 __i._M_node);
+	  }
+
+<div class="cut"></div>
+
+函数 splice 将 \_\_x 中从 \_\_first 开始到 \_\_last结束(不包括 \_\_last) 的部分粘贴到 \_\_pos 指向的节点之前。
+
+	  void splice(iterator __pos, slist& __x, iterator __first, iterator __last)
+	  {
+	    if (__first != __last)
+	      __slist_splice_after(__slist_previous(&this->_M_head, __pos._M_node),
+				   __slist_previous(&__x._M_head, __first._M_node),
+				   __slist_previous(__first._M_node, __last._M_node));
+	  }
+
+<div class="cut"></div>
+
+函数 reverse 用来对整个的 slist 反向。
+
+	  void reverse() { 
+	    if (this->_M_head._M_next)
+	      this->_M_head._M_next = __slist_reverse(this->_M_head._M_next);
+	  }
+
+<div class="cut"></div>
+
+函数 remove 删除 slist 中所有值为 \_\_val 的节点。
+
+	template <class _Tp, class _Alloc>
+	void slist<_Tp,_Alloc>::remove(const _Tp& __val)
+	{
+	  _Node_base* __cur = &this->_M_head;
+	  while (__cur && __cur->_M_next) {
+	    if (((_Node*) __cur->_M_next)->_M_data == __val)
+	      this->_M_erase_after(__cur);
+	    else
+	      __cur = __cur->_M_next;
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 unique 删除 slist 中重复的节点，前提是 slist 中的元素是已排序的。
+
+	template <class _Tp, class _Alloc> 
+	void slist<_Tp,_Alloc>::unique()
+	{
+	  _Node_base* __cur = this->_M_head._M_next;
+	  if (__cur) {
+	    while (__cur->_M_next) {
+	      if (((_Node*)__cur)->_M_data == 
+		  ((_Node*)(__cur->_M_next))->_M_data)
+		this->_M_erase_after(__cur);
+	      else
+		__cur = __cur->_M_next;
+	    }
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 merge 对两个已排序的 slist 进行合并，该函数被作为归并排序的子程序。
+
+while 循环中每次拿 \_\_n1(\_\_n1 初始时指向 \_M\_head) 指向的节点的下一个节点的值和 \_\_x 中的第一个节点的值进行比较，如果 \_\_x 中的第一个节点的值要小，则将该节点粘贴到 \_\_n1 指向的节点之后，\_\_n1->_M_next 指向的节点之前。 \_\_x 中原先的第二个节点现在成了第一个节点。
+	
+如果 \_\_n1 指向的节点的下一个节点(\_\_n1->\_M\_next 指向的节点)的值要小，则直接将 \_\_n1 往后挪动一个位置。直到 \_\_n1 指向最后一个节点，或者 \_\_x 为空链表，则循环结束。如果 \_\_x 不为空链表，则将 \_\_x 中剩余的节点都粘贴到当前链表的尾部，同时将 \_\_x 置为空链表。
+
+	template <class _Tp, class _Alloc>
+	void slist<_Tp,_Alloc>::merge(slist<_Tp,_Alloc>& __x)
+	{
+	  _Node_base* __n1 = &this->_M_head;
+	  while (__n1->_M_next && __x._M_head._M_next) {
+	    if (((_Node*) __x._M_head._M_next)->_M_data < 
+		((_Node*)       __n1->_M_next)->_M_data) 
+	      __slist_splice_after(__n1, &__x._M_head, __x._M_head._M_next);
+	    __n1 = __n1->_M_next;
+	  }
+	  if (__x._M_head._M_next) {
+	    __n1->_M_next = __x._M_head._M_next;
+	    __x._M_head._M_next = 0;
+	  }
+	}
+
+sort 函数对 slist 中的节点根据值的大小进行排序。
+
+函数中定义了三个变量 \_\_carry, \_\_counter, \_\_fill。其中 \_\_counter 用来暂存 slist 中已排序的节点，\_\_carry 主要是将 counter 中处在较前位置的已排序元素拿来和 counter 中处在较后位置的已排序元素进行合并。\_\_fill 表示在 counter 中 counter[0-\_\_fill) 中某些数组元素是非空的，并且 counter[\_\_fill - 1] 肯定是非空的。如果令 size = 0; for (i = 0; i < \_\_fill; i++) if(\_\_counter[i] != 0) size += pow(2, i); 那么 size 就是当前 slist 中已经参与排序了的元素个数。
+
+每次循环 \_\_carry 会先取走当前 slist 中一个还没有参与排序的元素， 然后 i 从 0 开始检测，如果 counter[i] 非空那么可以肯定 \_\_carry 中的元素个数肯定和 counter[i] 是相等的，都为 pow(2, i) 。然后合并 \_\_carry 和 counter[i] 中的元素，并将合并的元素最后都放到 \_\_carry 中，将 counter[i] 置为空。 ++i 进入下一次循环。如果第一次碰到了 counter[i] 为空，则退出内层的 while 循环。退出循环后 \_\_carry 中的元素正好为 pow(2, i) 。将 \_\_carry 中的元素放入 counter[i] 中，并且根据需要查看是否要调整 \_\_fill 的值。
+
+如果当前 slist 为空，则 slist 中的所有节点都参与了排序，已排序的节点都暂存在 counter[0-\_\_fill) 中的某些数组元素中。然后通过一个 for 循环将这些元素全部合并，并将最终合并的所有元素放到当前 slist。则当前 slist 即为一个有序的链表。
+
+	template <class _Tp, class _Alloc>
+	void slist<_Tp,_Alloc>::sort()
+	{
+	  if (this->_M_head._M_next && this->_M_head._M_next->_M_next) {
+	    slist __carry;
+	    slist __counter[64];
+	    int __fill = 0;
+	    while (!empty()) {
+	      __slist_splice_after(&__carry._M_head,
+				   &this->_M_head, this->_M_head._M_next);
+	      int __i = 0;
+	      while (__i < __fill && !__counter[__i].empty()) {
+		__counter[__i].merge(__carry);
+		__carry.swap(__counter[__i]);
+		++__i;
+	      }
+	      __carry.swap(__counter[__i]);
+	      if (__i == __fill)
+		++__fill;
+	    }
+
+	    for (int __i = 1; __i < __fill; ++__i)
+	      __counter[__i].merge(__counter[__i-1]);
+	    this->swap(__counter[__fill-1]);
+	  }
+	}
+
+<div class="cut"></div>
+
+[STL 的 slist 分析（一）](../19/slist1.html)</br>
+[STL 的 slist 分析（二）](../19/slist2.html)</br>
+[STL 的 slist 分析（三）](../19/slist3.html)</br>
+[STL 的 slist 分析（四）](../19/slist4.html)</br>
+[STL 的 slist 分析（五）](../19/slist5.html)</br>

@@ -1,0 +1,214 @@
+---
+title: STL 的 slist 分析（三）
+layout: post
+key: 0119d345-2587-48ad-b017-c07766d46a8c
+tags:
+  -slist 
+  -STL
+---
+
+函数 begin 返回指向 slist 第一个元素的迭代器，当前类中继承了基类的成员 \_M\_head。\_M\_head->next 是 \_Slist\_node\_base 类型的指针，它指向的是 slist 中的第一个节点。因为 slist 中的节点是 \_Node (\_Slist\_node<\_Tp>) 类型的，所以可以用强制转换将其转换为 \_Node 类型的指针。iterator (_Slist_iterator<_Tp, _Tp&, _Tp\*>) 中有一个形参 _Node 类型的构造函数。
+
+	  iterator begin() { return iterator((_Node*)this->_M_head._M_next); }
+
+<div class="cut"></div>
+
+函数 end 返回 slist 最后一个节点的后向指针 (_M_next) 指向的内容，最后一个节点的后向指针为空指针，指向的内容为空。
+
+	  iterator end() { return iterator(0); }
+
+<div class="cut"></div>
+
+函数 before\_begin 返回指向 slist 中的第一个节点之前的那个节点的迭代器，也就 \_M\_head 。但 \_M\_head 是一个 \_Slist\_node\_base 类型的实例，没有存储数据，因此是不能调用 operator\* 进行解引用的。函数中首先获取到指向 \_M\_head 的指针，并将其强制转化为 \_Node 类型的指针，用得到的 \_Node 类型的指针初始化迭代器。最后将生成的迭代器作为返回值返回。
+
+	  iterator before_begin() { return iterator((_Node*) &this->_M_head); }
+
+<div class="cut"></div>
+
+函数 size() 用来计算 slist 中节点的个数，通过调用之前定义的全局函数 \_\_slist\_size 函数来实现。
+
+	  size_type size() const { return __slist_size(this->_M_head._M_next); }
+
+<div class="cut"></div>
+
+empty 函数判断当前 slist 是否为空，通过查看 \_M\_head->next 是否为空指针可以得到。
+
+	  bool empty() const { return this->_M_head._M_next == 0; }
+
+<div class="cut"></div>
+
+函数 swap 用来交换两个 slist。因为 slist 是由 _M_head 链接而成的，直接交换两个 slist 的 _M_head->_M_next (也可以直接交换 _M_head) 即可。
+
+	  void swap(slist& __x)
+	    { __STD::swap(this->_M_head._M_next, __x._M_head._M_next); }
+
+<div class="cut"></div>
+
+函数 front 返回 slist 的第一个节点的数据内容。通过 \_M\_head->\_M\_next 得到指向第一个节点的指针，返回其成员 \_M\_data 的内容。
+
+	  reference front() { return ((_Node*) this->_M_head._M_next)->_M_data; }
+
+<div class="cut"></div>
+
+函数 push\_front 用来在 slist 的第一个节点之前插入一个新节点。通过调用 \_\_slist\_make\_link 来实现。
+
+	  void push_front(const value_type& __x)   {
+	    __slist_make_link(&this->_M_head, _M_create_node(__x));
+	  }
+	  void push_front() { __slist_make_link(&this->_M_head, _M_create_node()); }
+
+<div class="cut"></div>
+
+ 函数 pop\_front 用来将 slist 的第一个节点删除，首先通过 \_M\_head 获得指向第一个节点的指针，并让 \_M\_head->\_M\_next 指向第二个节点。再将第一个节点中存储的数据内容销毁，最后回收第一个节点占用的内存。函数slist 是否为空进行判断。这就需要在调用该函数之前判断 slist 是否为空。
+
+	  void pop_front() {
+	    _Node* __node = (_Node*) this->_M_head._M_next;
+	    this->_M_head._M_next = __node->_M_next;
+	    destroy(&__node->_M_data);
+	    this->_M_put_node(__node);
+	  }
+
+<div class="cut"></div>
+
+函数 previous 用来得到指定迭代器之前的一个迭代器。函数首先通过给定迭代器获取到指向链表中节点的指针 \_M\_node 。然后调用之前定义的全局函数 \_\_slist\_previous 得到指向之前节点的指针，并用该指针初始化一个迭代器，将这一个迭代器作为返回值返回。
+
+	  iterator previous(const_iterator __pos) {
+	    return iterator((_Node*) __slist_previous(&this->_M_head, __pos._M_node));
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_insert\_after 用来在给定位置之后插入一个新节点。函数首先构造一个新节点，然后调用 \_\_slist\_make\_link 将构造的新节点通过 \_\_slist\_make\_link 插入到给定位置 \_\_pos 之后。
+
+	  _Node* _M_insert_after(_Node_base* __pos, const value_type& __x) {
+	    return (_Node*) (__slist_make_link(__pos, _M_create_node(__x)));
+	  }
+
+	  _Node* _M_insert_after(_Node_base* __pos) {
+	    return (_Node*) (__slist_make_link(__pos, _M_create_node()));
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_insert\_after\_fill 用来在给定位置 \_\_pos 之后插入 \_\_n 个值为 \_\_x 的元素，\_\_slist\_make\_link 每次返回的是指向插入之后的新元素的指针。通过调用 \_\_n 次 \_\_slist\_make\_link 能将 \_\_n 个值为 \_\_x 的元素插入到 \_\_pos 之后。
+
+	  void _M_insert_after_fill(_Node_base* __pos,
+				    size_type __n, const value_type& __x) {
+	    for (size_type __i = 0; __i < __n; ++__i)
+	      __pos = __slist_make_link(__pos, _M_create_node(__x));
+	  }
+
+<div class="cut"></div>
+
+\_M\_insert\_after\_range 函数中根据模板形参 \_Inter 类型的不同，会调用 \_M\_insert\_after\_range 的两种不同定义。函数中用 \_Inter 来实例化 \_Is\_Integer 以检测 \_Inter 类型是否是整型，如果是，根据 \_Is\_Integer 的定义，\_Integral 会是 \_true\_type 的类型别名，如果不是，则 \_Integral 是 \_false\_type 的类型别名。
+
+	  template <class _InIter>
+	  void _M_insert_after_range(_Node_base* __pos, 
+				     _InIter __first, _InIter __last) {
+	    typedef typename _Is_integer<_InIter>::_Integral _Integral;
+	    _M_insert_after_range(__pos, __first, __last, _Integral());
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_insert\_after\_range 在给定位置 \_\_pos 之后插入 \_\_n 个值为 \_\_x 的节点
+
+	  template <class _Integer>
+	  void _M_insert_after_range(_Node_base* __pos, _Integer __n, _Integer __x,
+				     __true_type) {
+	    _M_insert_after_fill(__pos, __n, __x);
+	  }
+
+<div class="cut"></div>
+
+函数 \_S\_insert\_after\_range 将 \_\_first 到 \_\_last 之间的内容插入到指定位置 \_\_pos 之后。通过循环的调用 \_\_slist\_make\_link 将 \_\_first 到 \_\_last 之间的内容插入到 slist 的 \_\_pos 之后。\_\_slist\_make\_link 每次的返回值是指向新插入节点的指针，这样能保证 while 循环中插入到 slist 中的节点顺序与从 \_\_first 到 \_\_last 的节点顺序是一致的。
+
+	  template <class _InIter>
+	  void _M_insert_after_range(_Node_base* __pos,
+				     _InIter __first, _InIter __last,
+				     __false_type) {
+	    while (__first != __last) {
+	      __pos = __slist_make_link(__pos, _M_create_node(*__first));
+	      ++__first;
+	    }
+	  }
+
+<div class="cut"></div>
+
+函数 insert\_after 是在给定迭代器 \_\_pos 指向的节点的后面插入一个值为 \_\_x 的新节点。\_\_pos 的成员变量 \_M\_node 是指向节点的指针，则调用 \_M\_insert\_after 将值为 \_\_x 的新节点插入到 \_\_pos.\_M\_node 之后即可。函数的返回值为指向值为 \_\_x 的新节点的指针。根据该指针构造一个新的迭代器作为函数的返回值。
+
+	  iterator insert_after(iterator __pos, const value_type& __x) {
+	    return iterator(_M_insert_after(__pos._M_node, __x));
+	  }
+
+<div class="cut"></div>
+
+函数 insert\_after 将一个用 value\_type 类型的默认值构造的新节点插入到 \_\_pos 之后。
+
+	  iterator insert_after(iterator __pos) {
+	    return insert_after(__pos, value_type());
+	  }
+
+<div class="cut"></div>
+
+函数 insert\_after 在给定迭代器 \_\_pos 指向的节点之后插入 \_\_n 个值为 \_\_x 的节点。
+
+	  void insert_after(iterator __pos, size_type __n, const value_type& __x) {
+	    _M_insert_after_fill(__pos._M_node, __n, __x);
+	  }
+
+<div class="cut"></div>
+
+函数 insert\_after 将 \_\_first 到 \_\_last 之间的内容作为节点值构造新的节点，并将构造的新节点按照顺序插入到给定迭代器 \_\_pos 指向的节点之后。
+
+	  template <class _InIter>
+	  void insert_after(iterator __pos, _InIter __first, _InIter __last) {
+	    _M_insert_after_range(__pos._M_node, __first, __last);
+  }
+
+<div class="cut"></div>
+
+函数 insert 在给定的迭代器 \_\_pos 指向的节点之前插入一个值为 \_\_x 的新节点。 \_\_pos.\_M\_node 是指向节点的指针，调用 \_\_slist\_previous 得到一个指向 \_\_pos.\_M\_node 的前一个节点的指针。然后调用 \_M\_insert\_after 可以将新节点插入到 \_\_pos 指向的节点之前。
+
+	  iterator insert(iterator __pos, const value_type& __x) {
+	    return iterator(_M_insert_after(__slist_previous(&this->_M_head,
+							     __pos._M_node),
+			    __x));
+	  }
+
+<div class="cut"></div>
+
+函数 insert 将用 vlaue\_type 类型的默认值构造一个新节点插入到 \_\_pos 指向的节点之前。
+
+	  iterator insert(iterator __pos) {
+	    return iterator(_M_insert_after(__slist_previous(&this->_M_head,
+							     __pos._M_node),
+					    value_type()));
+	  }
+
+<div class="cut"></div>
+
+函数 insert 在 \_\_pos 指向的节点之前插入 \_\_n 个值为 \_\_x 的新节点。借助 \_\_slist\_previous 和 \_M\_insert\_after\_fill 来实现。
+
+	  void insert(iterator __pos, size_type __n, const value_type& __x) {
+	    _M_insert_after_fill(__slist_previous(&this->_M_head, __pos._M_node),
+				 __n, __x);
+	  } 
+
+<div class="cut"></div>
+
+函数 insert 将 \_\_first 到 \_\_last 之间的元素作为节点值构造新节点。并将这些新节点插入到 \_\_pos 指向的节点之前。
+
+	  template <class _InIter>
+	  void insert(iterator __pos, _InIter __first, _InIter __last) {
+	    _M_insert_after_range(__slist_previous(&this->_M_head, __pos._M_node), 
+				  __first, __last);
+	  }
+
+<div class="cut"></div>
+
+[STL 的 slist 分析（一）](../19/slist1.html)</br>
+[STL 的 slist 分析（二）](../19/slist2.html)</br>
+[STL 的 slist 分析（三）](../19/slist3.html)</br>
+[STL 的 slist 分析（四）](../19/slist4.html)</br>
+[STL 的 slist 分析（五）](../19/slist5.html)</br>

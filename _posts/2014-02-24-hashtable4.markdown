@@ -1,0 +1,287 @@
+---
+title: STL 的 hashtable 分析（四）
+layout: post
+key: 44414586-b517-4b80-a78f-351c860e36e2
+tags:
+  -hashtable 
+  -STL
+---
+
+
+erase 函数用来删除 hash 表中关键值为 \_\_key 的所有节点。首先调用 \_M\_bkt\_num\_key 函数计算出关键值为 \_\_key 的节点处在以 \_M\_buckets 中的第 \_\_n 个元素为链表头的链表中，将该链表头暂存在 \_\_first 中，如果 \_\_first 不为空，遍历整个链表先删除除 \_\_first 之外的所有关键值为 \_\_key 的节点，并记录删除的节点个数。最后检测 \_\_first 指向的节点的关键值是否为 \_\_key ，如果是，则删除该节点。最后返回删除的节点个数。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	typename hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>::size_type 
+	hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>::erase(const key_type& __key)
+	{
+	  const size_type __n = _M_bkt_num_key(__key);
+	  _Node* __first = _M_buckets[__n];
+	  size_type __erased = 0;
+
+	  if (__first) {
+	    _Node* __cur = __first;
+	    _Node* __next = __cur->_M_next;
+	    while (__next) {
+	      if (_M_equals(_M_get_key(__next->_M_val), __key)) {
+		__cur->_M_next = __next->_M_next;
+		_M_delete_node(__next);
+		__next = __cur->_M_next;
+		++__erased;
+		--_M_num_elements;
+	      }
+	      else {
+		__cur = __next;
+		__next = __cur->_M_next;
+	      }
+	    }
+	    if (_M_equals(_M_get_key(__first->_M_val), __key)) {
+	      _M_buckets[__n] = __first->_M_next;
+	      _M_delete_node(__first);
+	      ++__erased;
+	      --_M_num_elements;
+	    }
+	  }
+	  return __erased;
+	}
+
+<div class="cut"></div>
+
+erase 函数删除指定位置 \_\_it 的节点。如果函数指定的位置是一个有效位置，则函数首先计算出指定位置的节点处在以 \_M\_buckets 的第 \_\_n 个元素为链表头的链表中，并获取到这一链表头。遍历该链表找到函数所指定的位置，然后删除指定位置的节点，这里如果函数指定的位置在链表头，则需要更新链表头。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	void hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>::erase(const iterator& __it)
+	{
+	  _Node* __p = __it._M_cur;
+	  if (__p) {
+	    const size_type __n = _M_bkt_num(__p->_M_val);
+	    _Node* __cur = _M_buckets[__n];
+
+	    if (__cur == __p) {
+	      _M_buckets[__n] = __cur->_M_next;
+	      _M_delete_node(__cur);
+	      --_M_num_elements;
+	    }
+	    else {
+	      _Node* __next = __cur->_M_next;
+	      while (__next) {
+		if (__next == __p) {
+		  __cur->_M_next = __next->_M_next;
+		  _M_delete_node(__next);
+		  --_M_num_elements;
+		  break;
+		}
+		else {
+		  __cur = __next;
+		  __next = __cur->_M_next;
+		}
+	      }
+	    }
+	  }
+	}
+
+<div class="cut"></div>
+
+\_M\_erase\_bucket 函数用来删除以 \_M\_buckets[\_\_n] 为链表头中的链表中 \_\_first 和 \_\_last 限定的范围的节点。函数首先获取到链表头，并暂存在指针 \_\_cur 中，如果 \_\_first 等于 \_\_cur(链表头)，则调用 \_M\_erase\_bucket 的另一个定义删除从链表头到 \_\_last 位置(不包括 \_\_last)的所有节点。否则遍历链表，直到找到 \_\_first 指定的位置。然后删除从该位置到 \_\_last(不包括 \_\_last) 位置的节点。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	void hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>
+	  ::_M_erase_bucket(const size_type __n, _Node* __first, _Node* __last)
+	{
+	  _Node* __cur = _M_buckets[__n];
+	  if (__cur == __first)
+	    _M_erase_bucket(__n, __last);
+	  else {
+	    _Node* __next;
+	    for (__next = __cur->_M_next; 
+		 __next != __first; 
+		 __cur = __next, __next = __cur->_M_next)
+	      ;
+	    while (__next != __last) {
+	      __cur->_M_next = __next->_M_next;
+	      _M_delete_node(__next);
+	      __next = __cur->_M_next;
+	      --_M_num_elements;
+	    }
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 erase 删除以 \_M\_buckets[\_\_n] 为链表头的链表中，从链表头开始到 \_\_last 位置(不包括 \_\_last) 的所有节点。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	void hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>
+	  ::_M_erase_bucket(const size_type __n, _Node* __last)
+	{
+	  _Node* __cur = _M_buckets[__n];
+	  while (__cur != __last) {
+	    _Node* __next = __cur->_M_next;
+	    _M_delete_node(__cur);
+	    __cur = __next;
+	    _M_buckets[__n] = __cur;
+	    --_M_num_elements;
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 erase 删除迭代器 \_\_first 和迭代器 \_\_last 限定的区域的节点。
+
+函数首先获取 \_\_first 指向的位置的节点在以 \_M\_buckets 的第 \_\_f\_bucket 个元素为链表头的链表中。同时获取到 \_\_last 指向的位置的节点在以 \_M\_buckets 的第 \_\_l\_bucket 个元素为链表头的链表中。
+
+如果 \_\_first 指向的是无效位置，则 \_f\_bucket 为 \_M\_buckets.size()，如果 \_\_last 指向的是无效位置，则 \_\_l\_bucket 为 \_M\_buckets.size() 。如果 \_\_first 和 \_\_last 指向的是同一个位置，则直接退出。
+
+否则查看 \_\_f\_bucket 和 \_\_l\_bucket 是否相同，如果相同，则说明 \_\_first 和 \_\_last 指向的位置在同一条链表中，直接调用 \_M\_erase\_bucket 函数删除 \_\_first 到 \_\_last 之间的节点。否则如果 \_\_f\_bucket 和 \_\_l\_bucket 不相等，则首先删除以 \_M\_buckets[\_\_f\_bucket] 为链表头的链表中从 \_\_fisrt 开始的所有节点。然后 \_\_n 从 \_\_f\_bucket + 1 开始到 \_\_l\_bucket 结束，删除以 \_M\_buckets[\_\_n] 为链表头的链表中的所有节点。同时如果 \_\_l\_buckets 不为 \_M\_buckets.size() ，则删除以 \_M\_buckets[\_\_l\_bucket] 为链表头的链表中从链表头开始到 \_\_last (不包括 \_\_last) 位置结束的所有节点。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	void hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>
+	  ::erase(iterator __first, iterator __last)
+	{
+	  size_type __f_bucket = __first._M_cur ? 
+	    _M_bkt_num(__first._M_cur->_M_val) : _M_buckets.size();
+	  size_type __l_bucket = __last._M_cur ? 
+	    _M_bkt_num(__last._M_cur->_M_val) : _M_buckets.size();
+
+	  if (__first._M_cur == __last._M_cur)
+	    return;
+	  else if (__f_bucket == __l_bucket)
+	    _M_erase_bucket(__f_bucket, __first._M_cur, __last._M_cur);
+	  else {
+	    _M_erase_bucket(__f_bucket, __first._M_cur, 0);
+	    for (size_type __n = __f_bucket + 1; __n < __l_bucket; ++__n)
+	      _M_erase_bucket(__n, 0);
+	    if (__l_bucket != _M_buckets.size())
+	      _M_erase_bucket(__l_bucket, __last._M_cur);
+	  }
+	}
+
+<div class="cut"></div>
+
+resize 函数要求 \_M\_buckets 中元素个数至少为指定的 \_\_num\_elements\_hint 个。
+
+而且要求 \_M\_buckets.size() 为 \_\_stl\_prime\_list 中的预定义的素数。函数首先获取到当前 \_M\_buckets 中元素个数 \_\_old\_n 。如果 \_\_num\_elements\_hint 超出了 \_\_old\_n(当前 \_M\_buckets 中的元素个数)。则调用 \_M\_next\_size 函数获取到\_\_stl\_prime\_list 中大于等于 \_num\_elements\_hint 的最小素数。
+
+如果所有的素数都比 \_\_num\_elements\_hint 小，则返回最大的素数。用 \_\_n 暂存 \_M\_next\_size 返回的素数。如果 \_\_n 仍然大于 \_\_old\_n(因为 \_\_n 可能会比 \_\_num\_elements\_hint 小) 。则重新定义一个 vector<\_Node\*, \_All> 类型的变量 \_\_tmp ，并为 \_\_tmp 初始化 \_\_n 个为空指针的元素。
+
+然后将当前 \_M\_buckets 中的元素移动到 \_\_tmp 中，因为 \_M\_buckets 和 \_\_tmp 中的元素个数不同，所以具有相同节点值的节点在 \_M\_buckets 和 \_\_tmp 中位置可能是不相同的。对于 \_M\_buckets 中的每个元素首先计算出它应处在以 \_\_tmp 的第 \_\_new\_bucket 个元素为链表头的链表中，然后将该节点插入到以 \_\_tmp[\_\_new\_bucket] 为链表头的链表的头部。
+
+在 \_M\_buckets 中的所有元素都移动到 \_\_tmp 中之后，交换 \_M\_buckets 和 \_\_tmp 。这样 tmp 中的内容交换到 \_\_M\_buckets 中，而 \_M\_buckets 中的内容交换到 \_\_tmp 中，但 \_\_tmp 离开了作用于就会调用析构函数删除从 \_M\_buckets 中交换而来的内容。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	void hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>
+	  ::resize(size_type __num_elements_hint)
+	{
+	  const size_type __old_n = _M_buckets.size();
+	  if (__num_elements_hint > __old_n) {
+	    const size_type __n = _M_next_size(__num_elements_hint);
+	    if (__n > __old_n) {
+	      vector<_Node*, _All> __tmp(__n, (_Node*)(0),
+					 _M_buckets.get_allocator());
+	      __STL_TRY {
+		for (size_type __bucket = 0; __bucket < __old_n; ++__bucket) {
+		  _Node* __first = _M_buckets[__bucket];
+		  while (__first) {
+		    size_type __new_bucket = _M_bkt_num(__first->_M_val, __n);
+		    _M_buckets[__bucket] = __first->_M_next;
+		    __first->_M_next = __tmp[__new_bucket];
+		    __tmp[__new_bucket] = __first;
+		    __first = _M_buckets[__bucket];          
+		  }
+		}
+		_M_buckets.swap(__tmp);
+	      }
+	#         ifdef __STL_USE_EXCEPTIONS
+	      catch(...) {
+		for (size_type __bucket = 0; __bucket < __tmp.size(); ++__bucket) {
+		  while (__tmp[__bucket]) {
+		    _Node* __next = __tmp[__bucket]->_M_next;
+		    _M_delete_node(__tmp[__bucket]);
+		    __tmp[__bucket] = __next;
+		  }
+		}
+		throw;
+	      }
+	#         endif /* __STL_USE_EXCEPTIONS */
+	    }
+	  }
+	}
+
+<div class="cut"></div>
+
+clear 函数删除 hash 表中的所有节点，并释放这些节点所占用的空间。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	void hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>::clear()
+	{
+	  for (size_type __i = 0; __i < _M_buckets.size(); ++__i) {
+	    _Node* __cur = _M_buckets[__i];
+	    while (__cur != 0) {
+	      _Node* __next = __cur->_M_next;
+	      _M_delete_node(__cur);
+	      __cur = __next;
+	    }
+	    _M_buckets[__i] = 0;
+	  }
+	  _M_num_elements = 0;
+	}
+
+<div class="cut"></div>
+
+函数 \_M\_copy\_from 用来将给定 hash 表 \_\_ht 中的节点复制到当前 hash 表中。函数首先将当前 hash 表清空，然后为 \_M\_buckets 分配能够容纳 \_\_ht 中元素的空间。然后为当前 \_M\_buckets 初始化 \_\_ht.\_M\_buckets.size() 个为空指针的元素。再将 \_\_ht 中对应位置的元素复制到当前 hash 表中。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	void hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>
+	  ::_M_copy_from(const hashtable& __ht)
+	{
+	  _M_buckets.clear();
+	  _M_buckets.reserve(__ht._M_buckets.size());
+	  _M_buckets.insert(_M_buckets.end(), __ht._M_buckets.size(), (_Node*) 0);
+	  __STL_TRY {
+	    for (size_type __i = 0; __i < __ht._M_buckets.size(); ++__i) {
+	      const _Node* __cur = __ht._M_buckets[__i];
+	      if (__cur) {
+		_Node* __copy = _M_new_node(__cur->_M_val);
+		_M_buckets[__i] = __copy;
+
+		for (_Node* __next = __cur->_M_next; 
+		     __next; 
+		     __cur = __next, __next = __cur->_M_next) {
+		  __copy->_M_next = _M_new_node(__next->_M_val);
+		  __copy = __copy->_M_next;
+		}
+	      }
+	    }
+	    _M_num_elements = __ht._M_num_elements;
+	  }
+	  __STL_UNWIND(clear());
+	}
+
+<div class="cut"></div>
+
+函数 operator== 用来判断给定的两个 hash 表是否相等，首先要求两个 hash 表中 \_M\_buckets 的元素个数相同，其次要求以 \_M\_buckets 中元素为链表头的链表中的对应节点要相同。如果所有节点都一一对应、个个相同，则认为这两个 hash 是相同的。否则认为他们不相同。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	bool operator==(const hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>& __ht1,
+			const hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>& __ht2)
+	{
+	  typedef typename hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>::_Node _Node;
+	  if (__ht1._M_buckets.size() != __ht2._M_buckets.size())
+	    return false;
+	  for (int __n = 0; __n < __ht1._M_buckets.size(); ++__n) {
+	    _Node* __cur1 = __ht1._M_buckets[__n];
+	    _Node* __cur2 = __ht2._M_buckets[__n];
+	    for ( ; __cur1 && __cur2 && __cur1->_M_val == __cur2->_M_val;
+		  __cur1 = __cur1->_M_next, __cur2 = __cur2->_M_next)
+	      {}
+	    if (__cur1 || __cur2)
+	      return false;
+	  }
+	  return true;
+	}
+
+<div class="cut"></div>
+
+[STL 的 hashtable 分析（一）](../24/hashtable1.html)</br>
+[STL 的 hashtable 分析（二）](../24/hashtable2.html)</br>
+[STL 的 hashtable 分析（三）](../24/hashtable3.html)</br>
+[STL 的 hashtable 分析（四）](../24/hashtable4.html)</br>

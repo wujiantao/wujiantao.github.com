@@ -1,0 +1,225 @@
+---
+title: STL 的 deque 分析（五）
+layout: post
+key: 62da6fbd-9281-435b-8d5c-c9f0fc857947
+tags:
+  -deque 
+  -STL 
+---
+
+
+push\_back 函数在 deuqe 的后面插入一个元素。函数首先检测 \_M\_finish.\_M\_cur 是否指向所在内存块的最后一个位置( \_M\_finish.\_M\_last - 1)。如果不是，说明当前这一列还能够插入新元素，\_M\_finish.\_M\_cur 是 deque 的结束位置，它指向的位置上没有元素，因此直接将元素插入到 \_M\_finish.\_M\_cur 指示的位置上。然后将结束标记 \_M\_finish.\_M\_cur 往后移动一个位置。
+
+如果 \_M\_finish.\_M\_cur 已经到达了所在内存块的最后一个位置。新的元素插入到 \_M\_finish.\_M\_cur 指示的位置上之后， \_M\_finish.\_M\_cur 往后移动一个位置需要挪动到一个新的内存块。此时需要重新进行内存申请。相关的工作通过 push\_back\_aux 来实现。
+
+	  void push_back(const value_type& __t) {
+	    if (_M_finish._M_cur != _M_finish._M_last - 1) {
+	      construct(_M_finish._M_cur, __t);
+	      ++_M_finish._M_cur;
+	    }
+	    else
+	      _M_push_back_aux(__t);
+	  }
+
+<div class="cut"></div>
+
+\_M\_push\_back\_aux 将指定元素插入到 deque 的尾部。只有当插入一个元素后，结束标记需要挪动到新的内存块时才会调用 \_M\_push\_back\_aux 函数。函数内部首先调用 \_M\_reserve\_map\_at\_back 确保 \*\_M\_finish.\_M\_node 不是 \_M\_map 中的最后一个元素，因为新申请的内存空间的首地址会存储在 \_M\_finish.\_M\_node 的下一个位置上中，从\*(\_M\_finish.\_M\_node + 1) = \_M\_allocate\_node() 可以看出。
+
+函数然后调用基类的内存分配函数分配一个新的内存块，并将返回的地址赋值给 \_M\_finish.\_M\_node 下一个位置上的元素。在 \_M\_finish.\_M\_cur 的位置上插入新元素。并将 \_M\_finish 往后移动一个位置，修改 \_M\_finish 中的三个成员变量。修改后 \_M\_finish.\_M\_cur 会移动到新的一列的第一个元素所在的位置上。
+
+	template <class _Tp, class _Alloc>
+	void deque<_Tp,_Alloc>::_M_push_back_aux(const value_type& __t)
+	{
+	  value_type __t_copy = __t;
+	  _M_reserve_map_at_back();
+	  *(_M_finish._M_node + 1) = _M_allocate_node();
+	  __STL_TRY {
+	    construct(_M_finish._M_cur, __t_copy);
+	    _M_finish._M_set_node(_M_finish._M_node + 1);
+	    _M_finish._M_cur = _M_finish._M_first;
+	  }
+	  __STL_UNWIND(_M_deallocate_node(*(_M_finish._M_node + 1)));
+	}
+
+<div class="cut"></div>
+
+push\_back 函数在 deuqe 的后面插入一个元素。函数首先检测 \_M\_finish.\_M\_cur 是否指向所在内存块的最后一个位置( \_M\_finish.\_M\_last - 1)。如果不是，说明当前这一列还能够插入新元素，\_M\_finish.\_M\_cur 是 deque 的结束位置，它指向的位置上没有元素，因此直接将元素插入到 \_M\_finish.\_M\_cur 指示的位置上。然后将结束标记 \_M\_finish.\_M\_cur 往后移动一个位置。
+
+如果 \_M\_finish.\_M\_cur 已经到达了所在内存块的最后一个位置。新的元素插入到 \_M\_finish.\_M\_cur 指示的位置上之后， \_M\_finish.\_M\_cur 往后移动一个位置需要挪动到一个新的内存块。此时需要重新进行内存申请。相关的工作通过 push\_back\_aux 来实现。
+
+	  void push_back(const value_type& __t) {
+	    if (_M_finish._M_cur != _M_finish._M_last - 1) {
+	      construct(_M_finish._M_cur, __t);
+	      ++_M_finish._M_cur;
+	    }
+	    else
+	      _M_push_back_aux(__t);
+	  }
+
+<div class="cut"></div>
+
+\_M\_push\_back\_aux 将指定元素插入到 deque 的尾部。只有当插入一个元素后，结束标记需要挪动到新的内存块时才会调用 \_M\_push\_back\_aux 函数。函数内部首先调用 \_M\_reserve\_map\_at\_back 确保 \*\_M\_finish.\_M\_node 不是 \_M\_map 中的最后一个元素，因为新申请的内存空间的首地址会存储在 \_M\_finish.\_M\_node 的下一个位置上中，从\*(\_M\_finish.\_M\_node + 1) = \_M\_allocate\_node() 可以看出。
+
+函数然后调用基类的内存分配函数分配一个新的内存块，并将返回的地址赋值给 \_M\_finish.\_M\_node 下一个位置上的元素。在 \_M\_finish.\_M\_cur 的位置上插入新元素。并将 \_M\_finish 往后移动一个位置，修改 \_M\_finish 中的三个成员变量。修改后 \_M\_finish.\_M\_cur 会移动到新的一列的第一个元素所在的位置上。
+
+	template <class _Tp, class _Alloc>
+	void deque<_Tp,_Alloc>::_M_push_back_aux(const value_type& __t)
+	{
+	  value_type __t_copy = __t;
+	  _M_reserve_map_at_back();
+	  *(_M_finish._M_node + 1) = _M_allocate_node();
+	  __STL_TRY {
+	    construct(_M_finish._M_cur, __t_copy);
+	    _M_finish._M_set_node(_M_finish._M_node + 1);
+	    _M_finish._M_cur = _M_finish._M_first;
+	  }
+	  __STL_UNWIND(_M_deallocate_node(*(_M_finish._M_node + 1)));
+	}
+
+<div class="cut"></div>
+
+\_M\_reserve\_map\_at\_back 查看需要分配的元素个数 (这些元素会用来指向新分配的内存块的首地址) 是否 \_M\_map 中 比 \_M\_finish.\_M\_node 之后的元素多。(\_M\_finish.\_M\_node 之后的元素都是还未被使用的元素， \_M\_map 中未被使用的元素还包括 \_M\_start 之前元素。)
+
+如果 \_M\_finish.\_M\_node 之后的元素不能满足需要，则调用 \_M\_reallocate\_map 来进行调整或者重新分配内存 (具体是否需要重新分配内存，根据 \_M\_map 中还未使用的元素个数来决定。)
+
+	  void _M_reserve_map_at_back (size_type __nodes_to_add = 1) {
+	    if (__nodes_to_add + 1 > _M_map_size - (_M_finish._M_node - _M_map))
+	      _M_reallocate_map(__nodes_to_add, false);
+	  }
+
+<div class="cut"></div>
+
+\_M\_insert\_aux 用来在 deque 的内部 (非首部和尾部) 插入一个新元素。为实现的高效函数分两种情况进行考虑。
+
+第一种情况，如果待插入的位置 \_\_pos 在 deuqe 的前半部分，则将原先 deque 中 \_\_pos 之前的所有元素 (不包括 \_\_pos) 整体往前移动一个位置。因为要整体往前移动一个位置，原先 deque 中的第一个元素可能会被移动到新的内存块上去(但 deque 的第一个元素已经处在了所在内存块的首地址)，这种情况会涉及到内存分配或者 \_M\_map 中的元素调整等一系列复杂情况。程序将这些潜在的各种复杂情况通过 push\_front 来做了，将当前 deque 中的第一个元素插入到 deque 中的最前面，这样相当于将原先 deque 中的第一个元素往前移动了一个位置，接下来剩余的元素再往前移动一个位置，移动剩余的元素不会涉及到内存分配，因为移动前后元素都只是在 deque 内部进行位置的调整，并没有将元素移动到原先 deque 中不存在的位置上。
+
+第二种情况，如果待插入的位置 \_\_pos 在 deque 的后半部分，则将原先 deque 中 \_\_pos 之后的所有元素 (包括 \_\_pos) 整体向后移动一个位置。但这样原先 deque 中的结束标记 (\_M\_finish) 可能要移动到新的内存块上去，这样也涉及到新的内存分配。采用和第一种情况类似的策略，先将最后一个元素通过 push\_back 插入到 deque 的最后面，实现将最后一个元素往后移动一个位置的目的，接着将剩余的元素也往后移动一个位置，调用 copy\_backward 来实现。
+
+注意在 if 和 else 语句块中都重新对 \_\_pos 进行更新，这是因为调用 push\_front 和 push\_back 之后可能会导致 \_\_pos 失效，因此必须重新对 \_\_pos 进行更新。最后将新元素插入到更新后的 \_\_pos 所在的位置。
+
+	template <class _Tp, class _Alloc>
+	typename deque<_Tp, _Alloc>::iterator
+	deque<_Tp,_Alloc>::_M_insert_aux(iterator __pos, const value_type& __x)
+	{
+	  difference_type __index = __pos - _M_start;
+	  value_type __x_copy = __x;
+	  if (size_type(__index) < this->size() / 2) {
+	    push_front(front());
+	    iterator __front1 = _M_start;
+	    ++__front1;
+	    iterator __front2 = __front1;
+	    ++__front2;
+	    __pos = _M_start + __index;
+	    iterator __pos1 = __pos;
+	    ++__pos1;
+	    copy(__front2, __pos1, __front1);
+	  }
+	  else {
+	    push_back(back());
+	    iterator __back1 = _M_finish;
+	    --__back1;
+	    iterator __back2 = __back1;
+	    --__back2;
+	    __pos = _M_start + __index;
+	    copy_backward(__pos, __back2, __back1);
+	  }
+	  *__pos = __x_copy;
+	  return __pos;
+	}
+
+<div class="cut"></div>
+
+insert 函数将一个缺省值插入到 deque 的指定位置(如果元素没有默认值，则会发生错误) 。
+	  iterator insert(iterator __position)
+	    { return insert(__position, value_type()); }
+
+<div class="cut"></div>
+
+insert 函数将 \_\_n 个值为 \_\_x 的元素插入到 deque 的指定位置之前。函数通过调用 \_M\_fill\_insert 来实现需要的功能。
+
+	  void insert(iterator __pos, size_type __n, const value_type& __x)
+	    { _M_fill_insert(__pos, __n, __x); }
+
+<div class="cut"></div>
+
+\_M\_fill\_insert 函数实现的功能是在指定位置 \_\_pos 之前插入指定个数 \_\_n 个 值为 \_\_x 的元素。函数分三种情况进行考虑。
+
+第一种情况，如果插入的位置是否是在 deque 的最前面，如果是，则调用 \_M\_reserve\_elements\_at\_front 函数在 \_M\_start.\_M\_cur 之前为其分配能容纳 \_\_n 个元素的空间。然后在 \_M\_start.\_M\_cur 之前的 \_\_n 个位置上插入值为 \_\_x 的元素。
+
+第二种情况，如果插入的位置在 deque 的最后面，则调用 \_M\_reserve\_elements\_at\_back 函数在 \_M\_finish.\_M\_cur 之后为 deque 分配能够容纳 \_\_n个元素的空间。然后将值为 \_\_x 的 \_\_n 个元素插入到 \_M\_finish.\_M\_cur (包括 \_M\_finish.\_M\_cur) 开始往后的 \_\_n 个位置，重新设置好 \_M\_finish 的值。
+
+第三种情况，如果插入的位置在 deque 中间，则调用 \_M\_insert\_aux 来实现需要完成的功能。
+
+	template <class _Tp, class _Alloc>
+	void deque<_Tp, _Alloc>::_M_fill_insert(iterator __pos,
+			    size_type __n, const value_type& __x)
+	{
+	  if (__pos._M_cur == _M_start._M_cur) {
+	    iterator __new_start = _M_reserve_elements_at_front(__n);
+	    __STL_TRY {
+	      uninitialized_fill(__new_start, _M_start, __x);
+	      _M_start = __new_start;
+	    }
+	    __STL_UNWIND(_M_destroy_nodes(__new_start._M_node, _M_start._M_node));
+	  }
+	  else if (__pos._M_cur == _M_finish._M_cur) {
+	    iterator __new_finish = _M_reserve_elements_at_back(__n);
+	    __STL_TRY {
+	      uninitialized_fill(_M_finish, __new_finish, __x);
+	      _M_finish = __new_finish;
+	    }
+	    __STL_UNWIND(_M_destroy_nodes(_M_finish._M_node + 1, 
+			  __new_finish._M_node + 1));    
+	  }
+	  else 
+	    _M_insert_aux(__pos, __n, __x);
+	}
+
+<div class="cut"></div>
+
+\_M\_reserve\_elements\_at\_front 函数用来在 \_M\_start.\_M\_cur 之前分配能够容纳指定个数的元素的空间。函数首先查看以 \*\_M\_start.\_M\_node 为首地址的内存块还有多少个位置可以容纳新元素，计算 \_M\_start.\_M\_cur 与 \_M\_start.\_M\_first 的差值得出还有 \_\_vacancies 个位置能够用来存储新元素。如果 \_\_vacancies 不能达到要求的个数，则调用 \_M\_new\_elements\_at\_front 来为不够存储的元素分配新内存。然后返回指向 \_M\_start 之前的 \_\_n 个位置的迭代器。这个位置是插入新元素之后 \_M\_start 需要被更新的新位置。
+
+	  iterator _M_reserve_elements_at_front(size_type __n) {
+	    size_type __vacancies = _M_start._M_cur - _M_start._M_first;
+	    if (__n > __vacancies) 
+	      _M_new_elements_at_front(__n - __vacancies);
+	    return _M_start - difference_type(__n);
+	  }
+
+<div class="cut"></div>
+
+\_M\_new\_elements\_at\_front 为 deque 在 \_M\_start 之前分配指定数目的空间，首先查看分配指定数目 \_\_new\_elems 个新元素，需要占用的内存块个数 \_\_new\_nodes ，然后调用 \_M\_rerseve\_map\_at\_front 以保证 \_M\_start.\_M\_node 之前至少还有 \_\_new\_nodes 个元素可以用来存储新分配的内存块的首地址。然后在 try 语句块中分配 \_\_new\_nodes 个新内存块，并将这些内存块的首地址存储在 \_M\_start.\_M\_node 之前的 \_\_new\_nodes 个位置上。
+
+	template <class _Tp, class _Alloc>
+	void deque<_Tp,_Alloc>::_M_new_elements_at_front(size_type __new_elems)
+	{
+	  size_type __new_nodes
+	      = (__new_elems + _S_buffer_size() - 1) / _S_buffer_size();
+	  _M_reserve_map_at_front(__new_nodes);
+	  size_type __i;
+	  __STL_TRY {
+	    for (__i = 1; __i <= __new_nodes; ++__i)
+	      *(_M_start._M_node - __i) = _M_allocate_node();
+	  }
+	#       ifdef __STL_USE_EXCEPTIONS
+	  catch(...) {
+	    for (size_type __j = 1; __j < __i; ++__j)
+	      _M_deallocate_node(*(_M_start._M_node - __j));      
+	    throw;
+	  }
+	#       endif /* __STL_USE_EXCEPTIONS */
+	}
+
+<div class="cut"></div>
+
+\_M\_reserve\_elements\_at\_back 和 \_M\_reserve\_elements\_at\_front 类似，同时 \_M\_new\_elements\_at\_back 和 \_M\_new\_elements\_at\_front 类似，这里不再详述。
+
+
+<div class="cut"></div>
+
+[STL 的 deque 分析（一）](../22/deque1.html)</br>
+[STL 的 deque 分析（二）](../22/deque2.html)</br>
+[STL 的 deque 分析（三）](../22/deque3.html)</br>
+[STL 的 deque 分析（四）](../22/deque4.html)</br>
+[STL 的 deque 分析（五）](../22/deque5.html)</br>
+[STL 的 deque 分析（六）](../22/deque6.html)</br>

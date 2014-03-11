@@ -1,0 +1,320 @@
+---
+title: STL迭代器(iterator)分析
+layout: post
+key: dc343dd7-d33d-4d59-87dc-1fee357de26b
+tags:
+  -iterator 
+  -STL 
+---
+
+
+####类模板 back\_inerter\_iterator####
+back\_insert\_iterator 有一个模板形参 \_Container，用来表示当前 back\_insert\_iterator 关联的容器类型 (该类型的容器应该支持尾部插入的操作，即提供了 push\_back 的接口)。
+
+<div class="cut"></div>
+
+back\_insert\_iterator 中定义了一个 \_Container 类型的指针 container。用来指向当前 back\_insert\_iterator 关联的容器。back\_insert\_iterator 通过 container 来对其关联的容器进行元素插入。
+
+	protected:
+	  _Container* container;
+
+<div class="cut"></div>
+
+back\_insert\_iterator 中定义了迭代器约定俗成应用的五种成员类型，即 iterator\_category, value\_type, difference\_type, pointer, reference。
+
+从 iterator\_category 类型可以看成 back\_insert\_iterator 是一个输出迭代器(output\_iterator)，迭代器分两大类，输入迭代器和输出迭代器。其中输入迭代器又有 forward\_iterator, bidirectional\_iterator, randmon\_access\_iterator。
+
+输入迭代器通常可以通过解引用 (operator\*) 来获取迭代器指向的元素，而输出迭代器通常是用它提供的 operator\* 和 operator= 函数对迭代器关联的元素进行赋值 (这里的赋值和我们通常理解的赋值可能不同，具体要看 operator= 中的定义)。
+
+比如指针就既是输入迭代器也是输出迭代器。假设 p 为一个指针，从语句 \*p = \*p 就可以看成它既是一个输入迭代器又是一个输出迭代器。首先赋值语句的左边通过解引用获取了 p 所指向的元素的值，将其看成是一个输入迭代器。赋值语句的右边，首先通过对 p 进行解引用 ，然后调用 operator= 函数对其进行赋值 (这里指针是一个特例，对有些输出迭代器进行解引用得到的并不一定是它关联的元素。比如当前迭代器就不是)。
+
+
+	  typedef _Container          container_type;
+	  typedef output_iterator_tag iterator_category;
+	  typedef void                value_type;
+	  typedef void                difference_type;
+	  typedef void                pointer;
+	  typedef void                reference;
+
+<div class="cut"></div>
+
+构造函数的前面加上了 explicit 关键字，可以防止隐式的类型转换。给定的 \_Container 类型的实例用来始化成员变量 container 。这样借助 container，当前 back\_inert\_iterator 就和容器 \_\_x 进行了关联。
+
+	explicit back_insert_iterator(_Container& __x) : container(&__x) {}
+
+
+<div class="cut"></div>
+
+back\_insert\_iterator 内部定义了四个成员函数，分别对运算符 = \* ++ ++ 进行了重载，其中 operator\*, operator++, operator++() 都是返回当前迭代器本身。
+
+	  back_insert_iterator<_Container>& operator*() { return *this; }
+	  back_insert_iterator<_Container>& operator++() { return *this; }
+	  back_insert_iterator<_Container>& operator++(int) { return *this; }
+
+operator = 函数在 container 指向的容器尾部插入一个指定元素 \_\_value 。
+
+	  operator=(const typename _Container::value_type& __value) { 
+	    container->push_back(__value);
+	    return *this;
+	  }
+
+
+operator\*, operator++, operator++(int), operator= 函数也是迭代器约定俗成应该定义的函数。
+
+<div class="cut"></div>
+
+函数 back\_inserter 通过给定容器 \_\_x，实例化一个 back\_insert\_iterator 的实例，并返回该实例。
+
+	template <class _Container>
+	inline back_insert_iterator<_Container> back_inserter(_Container& __x) {
+	  return back_insert_iterator<_Container>(__x);
+	}
+
+<div class="cut"></div>
+
+####类模板 front\_insert\_iterator####
+
+与之对应的还有一个 front\_insert\_iterator 的迭代器，顾名思义就是可以关联一个容器，然后在容器的前端插入一个新的元素。这里容器本身需要支持 push\_front 操作。具体的实现了 back\_insert\_iterator 几乎是一模一样，除了元素的插入的位置不同之外。这里不详细说明了。
+
+	template <class _Container>
+	class front_insert_iterator {
+	protected:
+	  _Container* container;
+	public:
+	  typedef _Container          container_type;
+	  typedef output_iterator_tag iterator_category;
+	  typedef void                value_type;
+	  typedef void                difference_type;
+	  typedef void                pointer;
+	  typedef void                reference;
+
+	  explicit front_insert_iterator(_Container& __x) : container(&__x) {}
+	  front_insert_iterator<_Container>&
+	  operator=(const typename _Container::value_type& __value) { 
+	    container->push_front(__value);
+	    return *this;
+	  }
+	  front_insert_iterator<_Container>& operator*() { return *this; }
+	  front_insert_iterator<_Container>& operator++() { return *this; }
+	  front_insert_iterator<_Container>& operator++(int) { return *this; }
+	};
+
+<div class="cut"></div>
+
+函数 front\_inserter 用给定的容器实例化一个 front\_inert\_iteartor 的实例，并返回该实例。
+
+	template <class _Container>
+	inline back_insert_iterator<_Container> back_inserter(_Container& __x) {
+	  return back_insert_iterator<_Container>(__x);
+	}
+
+<div class="cut"></div>
+
+####类模板 insert\_iterator####
+
+insert\_iterator 也是对关联的容器进行插入操作，但该迭代器不再局限于将元素插入到容器的最前端或者容器的最后端了，而是可以将元素插入到一个指定的位置。模板形参 \_Container 同样表示关联的容器类型。
+
+	template <class _Container>
+	class insert_iterator {
+
+<div class="cut"></div>
+
+内部定义了两个 protected 属性的成员变量。container 用来指向当前 insert\_iterator 关联的容器，而 iter 是 \_Container 类型的容器中定义的迭代器的一个实例，通过 iter 可以定位 container 指向的容器中的一个具体位置，插入的新元素的位置就在 iter 指定的位置。
+
+	  _Container* container;
+	  typename _Container::iterator iter;
+
+<div class="cut"></div>
+
+构造函数中用给定的 \_Container 类型的实例 \_\_x 和 \_Container::iterator 类型的实例 \_\_i 来初始化当前成员变量 container 和 iter，函数没有对 \_\_i 是否指向一个有效位置进行检测，这就需要调用之前用户自己保证 \_\_i 的有效性。
+
+	  insert_iterator(_Container& __x, typename _Container::iterator __i) 
+	    : container(&__x), iter(__i) {}
+
+<div class="cut"></div>
+
+函数 operator\*, operator++, operator++(int) 都返回当前迭代器本身。
+
+	  insert_iterator<_Container>& operator*() { return *this; }
+	  insert_iterator<_Container>& operator++() { return *this; }
+	  insert_iterator<_Container>& operator++(int) { return *this; }
+
+<div class="cut"></div>
+
+函数 operator= 用来将给定元素 \_\_value 插入到关联的容器中 iter 所指向的位置。插入之后 iter 指向的容器中新元素 \_\_value 所在的位置，将 iter 往后移动一个位置，再次插入新元素时就会插入到当前插入的元素后面。
+
+	  operator=(const typename _Container::value_type& __value) { 
+	    iter = container->insert(iter, __value);
+	    ++iter;
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+函数 inserter 通过给定容器 (该容器需要内部定义了 insert 函数) 和该容器中的一个位置，构造一个 insert\_iterator 的实例，并返回该实例。
+
+	template <class _Container, class _Iterator>
+	inline 
+	insert_iterator<_Container> inserter(_Container& __x, _Iterator __i)
+	{
+	  typedef typename _Container::iterator __iter;
+	  return insert_iterator<_Container>(__x, __iter(__i));
+	}
+
+<div class="cut"></div>
+
+####类模板 reverse\_iterator####
+
+reverse\_iterator 通过给定的迭代器构造一个与给定迭代器迭代方向相反的迭代器。模板形参 \_Iterator 为一个迭代器类型。
+
+	template <class _Iterator>
+	class reverse_iterator 
+	{
+
+<div class="cut"></div>
+
+内部定义了一个 \_Iterator 类型的实例 current ，current 用来关联一个迭代器。。
+
+	protected:
+	  _Iterator current;
+
+<div class="cut"></div>
+
+reverse\_iterator 中的迭代器五种约定俗成的类型都和 \_Iterator 中是一致的。
+
+	  typedef typename iterator_traits<_Iterator>::iterator_category
+		  iterator_category;
+	  typedef typename iterator_traits<_Iterator>::value_type
+		  value_type;
+	  typedef typename iterator_traits<_Iterator>::difference_type
+		  difference_type;
+	  typedef typename iterator_traits<_Iterator>::pointer
+		  pointer;
+	  typedef typename iterator_traits<_Iterator>::reference
+		  reference;
+
+<div class="cut"></div>
+
+类中还定义了成员类型 iterator\_type 和 \_Self 。分别用来表示关联的迭代器类型和当前迭代器类型。
+
+	  typedef _Iterator iterator_type;
+	  typedef reverse_iterator<_Iterator> _Self;
+
+<div class="cut"></div>
+
+构造函数中用给定的迭代器 \_\_x ，使得当前 reverse\_iterator 与给定的迭代器相关联。拷贝构造函数中用一个 reverse\_iterator 类型的实例初始化当前类，使得当前 reverse\_iterator 与给定的实例关联同一个迭代器。
+
+	  reverse_iterator() {}
+	  explicit reverse_iterator(iterator_type __x) : current(__x) {}
+	  reverse_iterator(const _Self& __x) : current(__x.current) {}
+
+<div class="cut"></div>
+
+函数 base 返回当前迭代器关联的迭代器。
+
+	  iterator_type base() const { return current; }
+
+<div class="cut"></div>
+
+函数 operator\* 返回当前迭代器指向的元素，当前迭代器指向的元素实际上是关联的迭代器指向位置的前一位置上的元素。
+
+	  reference operator*() const {
+	    _Iterator __tmp = current;
+	    return *--__tmp;
+	  }
+
+<div class="cut"></div>
+
+函数 operator++ 将当前迭代器往后移动一个位置，即相当于将关联的迭代器往前移动一个位置。
+
+	  _Self& operator++() {
+	    --current;
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+函数 operator++(int) 也是将当前迭代器往后移动一个位置，但返回的是移动之前的状态。
+
+	  _Self operator++(int) {
+	    _Self __tmp = *this;
+	    --current;
+	    return __tmp;
+	  }
+
+<div class="cut"></div>
+
+函数 operator-- 将当前迭代器往前移动一个位置，即相当于将关联的迭代器往后移动一个位置。
+
+	  _Self& operator--() {
+	    ++current;
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+函数 operator--(int) 也是将当前迭代器往前移动一个位置，但返回的是移动之前的状态。
+
+	  _Self operator--(int) {
+	    _Self __tmp = *this;
+	    ++current;
+	    return __tmp;
+	  }
+
+<div class="cut"></div>
+
+函数 operator+ 返回将当前迭代器往后移动 \_\_n 个位置得到的迭代器，但返回的是临时值，不改变当前迭代器的状态。
+
+	  _Self operator+(difference_type __n) const {
+	    return _Self(current - __n);
+	  }
+
+<div class="cut"></div>
+
+函数 operator+= 将当前迭代器往后移动 \_\_n 个位置。
+
+	  _Self& operator+=(difference_type __n) {
+	    current -= __n;
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+函数 operator- 返回将当前迭代器往后移动 \_\_n 个位置得到的迭代器，但返回的是临时值，不改变当前迭代器的状态。
+
+	  _Self operator-(difference_type __n) const {
+	    return _Self(current + __n);
+	  }
+
+<div class="cut"></div>
+
+函数 operator-= 将当前迭代器往后移动 \_\_n 个位置。
+
+	  _Self& operator-=(difference_type __n) {
+	    current += __n;
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+函数 operator== 判断两个 reserve\_iterator 是否相等，通过比较两个 reverse\_iterator 各自关联的迭代器来进行判断。
+
+	template <class _Iterator>
+	inline bool operator==(const reverse_iterator<_Iterator>& __x, 
+			       const reverse_iterator<_Iterator>& __y) {
+	  return __x.base() == __y.base();
+	}
+
+<div class="cut"></div>
+
+函数 opeartor 比较给定 reserse\_iterator \_\_x 和 \_\_y 的大小。通过比较 \_\_y.base() 和 \_\_x.base() 的大小来判断二者的大小。  
+
+	template <class _Iterator>
+	inline bool operator!=(const reverse_iterator<_Iterator>& __x, 
+			       const reverse_iterator<_Iterator>& __y) {
+	  return __y.base() < __x.base();
+	}
+
+<div class="cut"></div>
+
+stl\_iterator.h 中还有 istream\_iterator 和 ostream\_iterator 的介绍，以及其他不在标准之列的迭代器介绍，这里不再叙述。

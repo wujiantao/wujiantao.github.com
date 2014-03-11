@@ -1,0 +1,116 @@
+---
+title: STL 的 stack 分析
+layout: post
+key: 2a6cccee-f2a4-4942-91b8-d13024006eea
+tags:
+  -stack 
+  -STL 
+---
+
+stack 的定义比较简单。它是在一个给定的底层容器上构造而成。stack 内部的功能实现都是通过调用底层容器的相关函数来进行实现。
+
+stack 是一个类模板。有两个模板形参分别为 \_Tp 和 \_Sequence 。其中 \_Tp 表示 stack 中的元素类型，该类型在实例化 stack 时需指定，\_Sequence 是用来存储 stack 元素的底层容器的类型。其缺省的模板实参为 deque<\_Tp> 。 \_\_STL\_DEPENDENT\_DEFAULT\_TMPL 是一个宏定义，其定义如下。如果程序中定义了 \_\_STL\_LIMITED\_DEFAULT\_TEMPLATES ，则\_\_STL\_DEPENDENT\_DEFAULT\_TMPL(\_Tp) 的定义为空，否则为 = \_Tp。
+
+	template <class _Tp, 
+		  class _Sequence __STL_DEPENDENT_DEFAULT_TMPL(deque<_Tp>) >
+	class stack;
+
+	# ifdef __STL_LIMITED_DEFAULT_TEMPLATES
+	#   define __STL_DEPENDENT_DEFAULT_TMPL(_Tp)
+	# else
+	#   define __STL_DEPENDENT_DEFAULT_TMPL(_Tp) = _Tp
+	# endif
+
+<div class="cut"></div>
+
+operator== 和 operator< 是两个全局函数。用来比较两个 stack 的大小，函数要求实例化两个 stack 的模板实参是一致的。 stack 中会将这两个函数设为友元函数，以允许它访问 stack 中的非公有成员。文件的开始处只是给出了它们的声明，其具体的定义在最后面。
+
+	template <class _Tp, class _Seq>
+	bool operator==(const stack<_Tp,_Seq>& __x, const stack<_Tp,_Seq>& __y);
+
+	template <class _Tp, class _Seq>
+	bool operator<(const stack<_Tp,_Seq>& __x, const stack<_Tp,_Seq>& __y);
+
+<div class="cut"></div>
+
+stack 的定义中有三个类型检测的语句。第一个语句要求 stack 中的元素类型 \_Tp 是可赋值的。第二条语句要求底层容器 \_Sequence 能够支持尾部的插入操作(通常为 push\_back) 。第三条语句定义了一个成员类型 \_Sequence\_value\_type ，其为 \_Sequence 中元素类型 value\_type 的一个类型别名。第四条语句要求 \_Tp 和 \_Sequence\_value\_type 的类型一致。因为 stack 中的元素实际都存储在 \_Sequence 类型的对象中，而 \_Tp 又是 stack 中的元素类型。所以要求二者的类型一致。
+
+	  __STL_CLASS_REQUIRES(_Tp, _Assignable);
+	  __STL_CLASS_REQUIRES(_Sequence, _BackInsertionSequence);
+	  typedef typename _Sequence::value_type _Sequence_value_type;
+	  __STL_CLASS_REQUIRES_SAME_TYPE(_Tp, _Sequence_value_type);
+
+
+<div class="cut"></div>
+
+stack 中将 operator== 和 operator< 设为了友元函数，前面已经介绍过。
+
+	  template <class _Tp1, class _Seq1>
+	  friend bool operator== (const stack<_Tp1, _Seq1>&,
+				  const stack<_Tp1, _Seq1>&);
+	  template <class _Tp1, class _Seq1>
+	  friend bool operator< (const stack<_Tp1, _Seq1>&,
+				 const stack<_Tp1, _Seq1>&);
+
+<div class="cut"></div>
+
+stack 中声明了几个成员类型。value\_type 是 \\_Sequence::value\_type 的类型别名(\_Tp 与 \_Sequence::value\_type 的类型是一致的，前面已进行类型检测 ) 。size\_type 为 \_Sequence::size\_type 的类型别名(size\_type 一般为 unsigned long) container\_type 为 \_Sequence 的类型别名。reference 为 \_Sequence::reference 的类型别名。const\_reference 为 \_Sequence::const\_reference 的类型别名。(stack 中定义的成员类型都是 \_Sequence 中的同名成员类型的类型别名。所以也就要求用来实例化 stack 的容器 \_Sequence 中必须有以上的成员类型)
+
+	  typedef typename _Sequence::value_type      value_type;
+	  typedef typename _Sequence::size_type       size_type;
+	  typedef          _Sequence                  container_type;
+
+	  typedef typename _Sequence::reference       reference;
+	  typedef typename _Sequence::const_reference const_reference;
+
+<div class="cut"></div>
+
+stack 中定义了一个 protected 属性的 _Sequence 类型的成员变量 c，c 是用来存储 stack 中的元素的容器。
+
+	  _Sequence c;
+
+<div class="cut"></div>
+
+stack 中有两个构造函数。第一个是一个空构造函数，初始化列表中调用 c 的空构造函数初始化 c 。第二个构造函数用一个已有的容器来初始化成员变量 c 。
+
+	  stack() : c() {}
+	  explicit stack(const _Sequence& __s) : c(__s) {}
+
+<div class="cut"></div>
+
+empty 函数判断当前 stack 是否为空，返回 c.empty() 的值。size 函数获取当前 stack 中的元素个数，返回 c.size() 的值。top 函数返回栈顶元素。stack 中的栈顶元素存储在容器的尾部元素，每次在栈顶插入一个新元素也是插入到容器的尾部。调用 c.back() 来获取栈顶元素。
+
+	  bool empty() const { return c.empty(); }
+	  size_type size() const { return c.size(); }
+	  reference top() { return c.back(); }
+
+<div class="cut"></div>
+
+push 函数在栈顶插入一个新元素。调用 c.push\_back 来实现。pop 函数用来弹出栈顶元素，调用 c.pop\_back 来说实现。
+
+	  void push(const value_type& __x) { c.push_back(__x); }
+	  void pop() { c.pop_back(); }
+
+<div class="cut"></div>
+
+operator== 函数用来判断给定的两个 stack 是否相等。将 \_\_x.c 和 \_\_y.c 作为实参，调用函数 operator== (\_Seq&, \_Seq&)，并将 operator== (\_Seq&, \_Seq&) 的返回值作为当前函数的返回值。
+
+	template <class _Tp, class _Seq>
+	bool operator==(const stack<_Tp,_Seq>& __x, const stack<_Tp,_Seq>& __y)
+	{
+	  return __x.c == __y.c;
+	}
+
+<div class="cut"></div>
+
+operator< 比较给定的两个 stack 的大小。将 \_\_x.c 和 \_\_y.c 作为实参，调用函数 operator< (\_Seq&, \_Seq&)，并将 operator< (\_Seq&, \_Seq&) 的返回值作为函数的返回值。
+
+	template <class _Tp, class _Seq>
+	bool operator<(const stack<_Tp,_Seq>& __x, const stack<_Tp,_Seq>& __y)
+	{
+	  return __x.c < __y.c;
+	}
+
+<div class="cut"></div>
+
+stack 中还定义了另外一些关系运算符重载。如 operator!=, operator>, operator<=, operator>= 。其中这些偏序关系都可以通过调用 operator= 和 operator< 来实现，这里不再赘述。

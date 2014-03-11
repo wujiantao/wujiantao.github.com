@@ -1,0 +1,179 @@
+---
+title: STL的内存分配器（一）
+layout: post
+key: 17173863-a408-4b80-914d-bcb12ce8d15f
+tags:
+  -allocator 
+  -STL 
+---
+#### 类模板 \_\_malloc\_alloc\_template####
+
+\_\_malloc\_alloc\_template 是一个类模板，其功能从类模板的命名上能够反映出来，首先它提供内存分配，其次其内存分配是通过调用系统的 malloc 函数来实现的。
+
+\_\_malloc\_alloc\_template 内部定义了两个私有函数，用来处理内存分配出现错误的情况。两个函数的函数原型如下所示。
+
+	  static void* _S_oom_malloc(size_t);
+	  static void* _S_oom_realloc(void*, size_t);
+
+<div class="cut"></div>
+
+allocate 是 \_\_malloc\_alloc\_template 中定义的公有成员函数 它调用 c 语言的 malloc 函数分配指定的大小为 \_\_n 字节的内存，如果内存分配发生了错误，则调用 \_S\_oom\_malloc 函数来进行错误处理，并获取到 \_S\_oom\_malloc 函数中内存分配的返回结果，作为返回值。
+
+	  static void* allocate(size_t __n)
+	  {
+	    void* __result = malloc(__n);
+	    if (0 == __result) __result = _S_oom_malloc(__n);
+	    return __result;
+	  }
+
+<div class="cut"></div>
+
+函数 deallocate 对给定地址的内存进行释放，其中第二个形参为无用形参。
+
+	  static void deallocate(void* __p, size_t /* __n */)
+	  {
+	    free(__p);
+	  }
+
+函数 reallocate 调用 c 语言的 realloc 函数进行内存的重新分配， 如果 realloc 中内存分配失败，则调用 \_S\_oom\_realloc 函数来进行处理。并获取 \_S\_oom\_realloc 函数的返回值，作为当前函数的返回值。
+
+	  static void* reallocate(void* __p, size_t /* old_sz */, size_t __new_sz)
+	  {
+	    void* __result = realloc(__p, __new_sz);
+	    if (0 == __result) __result = _S_oom_realloc(__p, __new_sz);
+	    return __result;
+	  }
+<div class="cut"></div>
+
+函数 set\_malloc\_handler 用来对 \_\_malloc\_alloc\_oom\_handler 进行赋值。 根据宏定义的不同，\_\_malloc\_alloc\_oom\_handler 可能为全局变量，可能为类中的私有变量，类型为没有返回值、没有函数形参的一个函数指针。但不管哪一种定义，\_malloc\_alloc\_oom\_handler 在类的成员函数中都是可访问的，当前函数是对其进行赋值，并返回\_\_malloc\_alloc\_oom\_handler 被重新赋值之前的指向的函数。
+
+函数的定义看起来有点绕，首先 void (\*)() 是返回类型，可以将两个最外层的括号剥离，得到 \_\_set\_malloc\_handler (void (\*\_\_f)()) 。这样看起来就比较明了了。
+
+	  static void (* __set_malloc_handler(void (*__f)()))()
+	  {
+	    void (* __old)() = __malloc_alloc_oom_handler;
+	    __malloc_alloc_oom_handler = __f;
+	    return(__old);
+	  }
+
+<div class="cut"></div>
+
+函数 \_S\_oom\_alloc 通过调用 \_\_malloc\_alloc\_oom\_handler 来处理用 malloc 进行内存分配时出现的错误。首先检测 \_\_malloc\_alloc\_oom\_handler 是否为空，如果为空，则抛出一个 bad\_alloc 的异常，该异常在命名空间 std 中定义。否则调用 \_\_malloc\_alloc\_oom\_handler 。
+
+在异常处理之后，重新分配内存。如果内存分配成功，则返回，否则进入下次循环，这里具体的异常处理细节如何，不得而知，不好多说。
+
+	void* __malloc_alloc_template<__inst>::_S_oom_malloc(size_t __n)
+	{
+	    void (* __my_malloc_handler)();
+	    void* __result;
+
+	    for (;;) {
+		__my_malloc_handler = __malloc_alloc_oom_handler;
+		if (0 == __my_malloc_handler) { __THROW_BAD_ALLOC; }
+		(*__my_malloc_handler)();
+		__result = malloc(__n);
+		if (__result) return(__result);
+	    }
+	}
+
+<div class="cut"></div>
+
+函数 \_S\_oom\_realloc 与上面的 \_S\_oom\_malloc 实现比较类似，它用来处理用 realloc 进行内存分配时出现的错误。
+
+	void* __malloc_alloc_template<__inst>::_S_oom_realloc(void* __p, size_t __n)
+	{
+	    void (* __my_malloc_handler)();
+	    void* __result;
+
+	    for (;;) {
+		__my_malloc_handler = __malloc_alloc_oom_handler;
+		if (0 == __my_malloc_handler) { __THROW_BAD_ALLOC; }
+		(*__my_malloc_handler)();
+		__result = realloc(__p, __n);
+		if (__result) return(__result);
+	    }
+	}
+
+在\_\_malloc\_alloc\_template<\_inst> 定义结束的地方，定义了一个全局的类型别名。
+
+在 \_malloc\_alloc\_template<\_inst> 中并没有使用模板形参 \_inst 。所以实例化类模板时 \_inst 选什么值，得到的定义其实是一样的，区别在于，不同的实例化值可以实例化为不同的类，可以起到一个区分你我的作用。
+
+	typedef __malloc_alloc_template<0> malloc_alloc;
+<div class="cut"></div>
+
+####类模板 simple\_alloc####
+
+simple\_alloc 模板类可以看成是对内存分配器 \_Alloc 的一个再封装，其内部通过调用 \_Alloc 的内存管理函数来实现自己的内存分配和回收。
+
+在调用 \_Alloc 中的函数时都是采用的作用域运算符来进行调用，因此被调用的函数需要是静态的，\_Alloc 可以被实例化为之前定义的 malloc\_alloc ，因为在 malloc\_alloc 中定义的函数都是静态的，但其不能够被实例化为接下来的 allocator 类，因为 allocator 中成员函数都是非静态的。
+
+	template<class _Tp, class _Alloc>
+	class simple_alloc {
+
+	public:
+	    static _Tp* allocate(size_t __n)
+	      { return 0 == __n ? 0 : (_Tp*) _Alloc::allocate(__n * sizeof (_Tp)); }
+	    static _Tp* allocate(void)
+	      { return (_Tp*) _Alloc::allocate(sizeof (_Tp)); }
+	    static void deallocate(_Tp* __p, size_t __n)
+	      { if (0 != __n) _Alloc::deallocate(__p, __n * sizeof (_Tp)); }
+	    static void deallocate(_Tp* __p)
+	      { _Alloc::deallocate(__p, sizeof (_Tp)); }
+	};
+
+<div class="cut"></div>
+####类模板 debug\_alloc####
+
+debug\_alloc 模板类也是对内存分配器 \_Alloc 的一个再封装。也是通过模板实参传递进来的 \_Alloc 来进行内存管理。
+
+类模板中定义了一个没有名称的枚举变量,其内部定义了一个枚举值 \_S\_extra ,值设为 8 。\_S\_extra 被作为一个常量值在使用。
+
+	  enum {_S_extra = 8};
+
+<div class="cut"></div>
+allocate 函数用来调用 \_Alloc 中的静态函数 \_Alloc::allocate 进行内存分配。 实际对内存进行分配时每次都多分配 \_S\_extra 大小的内存，多分配 \_S\_extra 字节的内存用来暂存 \_\_n 的值，其中 \_\_n 是程序需要分配的内存大小，在返回时跳过这多余的 \_S\_extra 然后将剩下的内存返回给程序使用。
+
+	  static void* allocate(size_t __n)
+	  {
+	    char* __result = (char*)_Alloc::allocate(__n + (int) _S_extra);
+	    *(size_t*)__result = __n;
+	    // then move the pointer __result to next _S_extra bits
+	    return __result + (int) _S_extra;
+	  }
+
+
+<div class="cut"></div>
+deallocate 函数用来对已分配的内存进行回收。因为每次进行内存分配时都会多分配出 \_S\_extra 的内存空间，在进行内存回收时也要加上这些每次多出的大小为 \_S\_extra 的内存空间。
+
+同时在分配内存时，内存分配的大小暂存在了多分配的 \_S\_extra 个字节的内存中，在回收内存时先读取出来和当前的 \_\_n进行比对，如果不等，则认为程序有问题，如果 \_\_n 过小，那么会造成内存泄露，如果 \_\_n 过大，则会回收其他不该回收的内存，产生不可预料的后果。如果比对是一样的，则程序会回收这片内存。
+
+	  static void deallocate(void* __p, size_t __n)
+	  {
+	    // get the real address
+	    char* __real_p = (char*)__p - (int) _S_extra;
+	    // test whether the value in first element pointed by __p is equal to __n or not.
+	    assert(*(size_t*)__real_p == __n);
+	    _Alloc::deallocate(__real_p, __n + (int) _S_extra);
+	  }
+
+
+<div class="cut"></div>
+
+函数 reallocate 进行内存的再分配。 函数首先比对原先分配的旧内存大小是否是正确，如果是，则程序调用 \_Alloc 的 reallocate 函数对内存进行回收和重新分配， 注意调用 \Alloc 的 reallocate 是需加上 \_S\_extra 。并将分配的大小记录在多分配的 \_S\_extra 个字节中
+
+	  static void* reallocate(void* __p, size_t __old_sz, size_t __new_sz)
+	  {
+	    char* __real_p = (char*)__p - (int) _S_extra;
+	    assert(*(size_t*)__real_p == __old_sz);
+	    char* __result = (char*)
+	      _Alloc::reallocate(__real_p, __old_sz + (int) _S_extra,
+					   __new_sz + (int) _S_extra);
+	    *(size_t*)__result = __new_sz;
+	    return __result + (int) _S_extra;
+	  }
+
+<div class="cut"></div>
+
+[STL的内存分配器（一）](../12/alloc1.html)</br>
+[STL的内存分配器（二）](../12/alloc2.html)</br>
+[STL的内存分配器（三）](../12/alloc3.html)</br>

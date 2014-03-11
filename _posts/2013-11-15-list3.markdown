@@ -1,0 +1,233 @@
+---
+title: STL 的 list 分析（三）
+layout: post
+key: e4eb45ba-09e9-4d44-ab05-07d8363f8b99
+tags:
+  -list 
+  -STL 
+---
+
+
+assign 函数将 \_\_n 个值为 \_\_val 的元素赋值给当前 list 。通过 operator= 进行赋值有一些限制，因为形参只能是 list 类型，但 assign 函数就可以有更多选择。函数通过调用 \_M\_fill\_assign 来实现指定的功能。
+
+	  void assign(size_type __n, const _Tp& __val) { _M_fill_assign(__n, __val); }
+
+<div class="cut"></div>
+
+\_M\_fill\_assign 函数对 list 进行赋值，使得赋值之后 list 中含有 \_\_n 个值为 \_\_val 的元素。如果 \_\_n 比当前元素个数多，则先将当前 list 中的所有元素值更改为 \_\_val ,然后将剩余的元素插入 list 尾部，使得元素的个数达到 \_\_n 。如果当前的元素个数比 \_\_n 多，则将当前 list 中的前 \_\_n 个元素值更改为 \_\_val ，然后将多出来的元素删除掉。
+
+	template <class _Tp, class _Alloc>
+	void list<_Tp, _Alloc>::_M_fill_assign(size_type __n, const _Tp& __val) {
+	  iterator __i = begin();
+	  for ( ; __i != end() && __n > 0; ++__i, --__n)
+	    *__i = __val;
+	  if (__n > 0)
+	    insert(end(), __n, __val);
+	  else
+	    erase(__i, end());
+	}
+
+<div class="cut"></div>
+函数模板 assign 根据第二个和第三个函数形参的类型，来调用不同的 \_M\_assign\_dispatch ，以实现不同的赋值功能。 如果 \_InputIterator 是整型，则 \_Integral 会是 \_true\_type 的一个类型别名。调用第三个形参类型为 \_\_true\_type 的 \_M\_assign\_dispatch 函数。否则调用第三个形参类型为 \_\_fasle\_type 的 \_M\_assign\_dispathc 函数。
+
+	  template <class _InputIterator>
+	  void assign(_InputIterator __first, _InputIterator __last) {
+	    typedef typename _Is_integer<_InputIterator>::_Integral _Integral;
+	    _M_assign_dispatch(__first, __last, _Integral());
+	  }
+
+<div class="cut"></div>
+函数 \_M\_assign\_dispatch 对当前 list 进行赋值，使得赋值之后 list 中含有 \_\_n 个值为 \_\_val 的元素。函数要求 \_Integer 类型能强制转换为 \_Tp 类型。通过调用 \_M\_fill\_assign 函数实现具体的功能。
+
+	  template <class _Integer>
+	  void _M_assign_dispatch(_Integer __n, _Integer __val, __true_type)
+	    { _M_fill_assign((size_type) __n, (_Tp) __val); }
+
+<div class="cut"></div>
+函数 \_M\_assign\_dispatch 将 \_\_first 到 \_\_last 之间的内容赋值给当前 list。函数看赋值的元素个数和当前的元素个数那个要多，如果当前的元素多，则将前面的元素更新为对应的值，并删除剩余值，如果当前元素少，先更新当前的所有元素值，剩下的元素插入到 list 尾部。
+
+	template <class _Tp, class _Alloc> template <class _InputIter>
+	void
+	list<_Tp, _Alloc>::_M_assign_dispatch(_InputIter __first2, _InputIter __last2,
+					      __false_type)
+	{
+	  iterator __first1 = begin();
+	  iterator __last1 = end();
+	  for ( ; __first1 != __last1 && __first2 != __last2; ++__first1, ++__first2)
+	    *__first1 = *__first2;
+	  if (__first2 == __last2)
+	    erase(__first1, __last1);
+	  else
+	    insert(__last1, __first2, __last2);
+	}
+
+<div class="cut"></div>
+transfer 函数是将由迭代器 \_\_first 和 \_\_last 包围的一块区域整体移动到 \_\_postion 之前。\_\_first 和 \_\_last 不需要一定是当前 list 上的位置，只要 \_\_first 和 \_\_last 指定的是一块合理的区域就可以。函数中没有检测 \_\_first 和 \_\_last 的正确性。函数是 protected 属性的，list 的对象不能使用。
+
+	  void transfer(iterator __position, iterator __first, iterator __last) {
+	    if (__position != __last) {
+	      // Remove [first, last) from its old position.
+	      __last._M_node->_M_prev->_M_next     = __position._M_node;
+	      __first._M_node->_M_prev->_M_next    = __last._M_node;
+	      __position._M_node->_M_prev->_M_next = __first._M_node; 
+
+	      // Splice [first, last) into its new position.
+	      _List_node_base* __tmp      = __position._M_node->_M_prev;
+	      __position._M_node->_M_prev = __last._M_node->_M_prev;
+	      __last._M_node->_M_prev     = __first._M_node->_M_prev; 
+	      __first._M_node->_M_prev    = __tmp;
+	    }
+	  }
+
+<div class="cut"></div>
+splice 函数实现的功能就是将 \_\_x 的所有元素移动到当前 list 的 \_\_position 之前
+
+	  void splice(iterator __position, list& __x) {
+	    if (!__x.empty()) 
+	      this->transfer(__position, __x.begin(), __x.end());
+	  }
+
+<div class="cut"></div>
+splice 函数是将一个迭代器指示的位置上的元素移动到当前 list 的 \_\_position 之前。
+
+	  void splice(iterator __position, list&, iterator __i) {
+	    iterator __j = __i;
+	    ++__j;
+	    if (__position == __i || __position == __j) return;
+	    this->transfer(__position, __i, __j);
+	  }
+
+<div class="cut"></div>
+splice 函数是将两个迭代器包围的所有元素都移动到 \_\_position 指示的位置之前。
+
+	  void splice(iterator __position, list&, iterator __first, iterator __last) {
+	    if (__first != __last) 
+	      this->transfer(__position, __first, __last);
+	  }
+
+<div class="cut"></div>
+remove 函数实现的功能是给定一个元素值，通过 remove 函数能删除 list 中所有与该给定值相等的元素。
+
+	template <class _Tp, class _Alloc>
+	void list<_Tp, _Alloc>::remove(const _Tp& __value)
+	{
+	  iterator __first = begin();
+	  iterator __last = end();
+	  while (__first != __last) {
+	    iterator __next = __first;
+	    ++__next;
+	    if (*__first == __value) erase(__first);
+	    __first = __next;
+	  }
+	}
+
+<div class="cut"></div>
+unique 函数实现的功能是将剔除 list 中重复的元素，当然这个实现的正确性是基于 list 是有序的基础上。 list 中提供了 sort 函数对当前的 list 进行排序。
+
+	template <class _Tp, class _Alloc>
+	void list<_Tp, _Alloc>::unique()
+	{
+	  iterator __first = begin();
+	  iterator __last = end();
+	  if (__first == __last) return;
+	  iterator __next = __first;
+	  while (++__next != __last) {
+	    if (*__first == *__next)
+	      erase(__next);
+	    else
+	      __first = __next;
+	    __next = __first;
+	  }
+	}
+
+<div class="cut"></div>
+函数 merge 是将给定的 list\_\_x 与当前 list 进行合并，函数对形参 \_\_x 和当前 list 的要求是二者中的元素都需要是有序的，并且合并之后的结果存储在当前 list 中， 形参 \_\_x 变成一个空 list。
+
+	template <class _Tp, class _Alloc>
+	void list<_Tp, _Alloc>::merge(list<_Tp, _Alloc>& __x)
+	{
+	  iterator __first1 = begin();
+	  iterator __last1 = end();
+	  iterator __first2 = __x.begin();
+	  iterator __last2 = __x.end();
+	  while (__first1 != __last1 && __first2 != __last2)
+	    if (*__first2 < *__first1) {
+	      iterator __next = __first2;
+	      transfer(__first1, __first2, ++__next);
+	      __first2 = __next;
+	    }
+	    else
+	      ++__first1;
+	  if (__first2 != __last2) transfer(__last1, __first2, __last2);
+	}
+
+<div class="cut"></div>
+\_\_List\_base\_reverse 实现的功能就是从 list 上的某个元素出发，将整个 list 遍历一遍，并且遍历的同时交换每个元素的 \_M\_next 和 \_M\_prev 指针。因为整个 list 是一个环，所以不管从那个元素出发，最后肯定都能回到当前的元素。
+
+	inline void __List_base_reverse(_List_node_base* __p)
+	{
+	  _List_node_base* __tmp = __p;
+	  do {
+	    __STD::swap(__tmp->_M_next, __tmp->_M_prev);
+	    __tmp = __tmp->_M_prev;     // Old next node is now prev.
+	  } while (__tmp != __p);
+	}
+
+<div class="cut"></div>
+对整个 list 进行逆序，调用 reverse 函数之后，原先的第一个元素变成最后一个元素，原先的最后一个元素变成第一个元素。
+
+	template <class _Tp, class _Alloc>
+	inline void list<_Tp, _Alloc>::reverse() 
+	{
+	  __List_base_reverse(this->_M_node);
+	}    
+
+<div class="cut"></div>
+sort 函数对 list 进行排序，排序方法为归并排序。
+
+外层的 while 循环中每次从当前的 list 取出一个元素放到 carry 中(每次外层 while 循环开始的地方 carry 都为空)，通过 splice 函数实现。内层的 while 循环中，如果 \_\_counter[i](i 从 0 开始) 不为空，就拿 carry 和 \_\_couter[i] 进行合并 （carry 和 \_\_couter[i] 中的元素都是有序的) 。 合并之后的结果会放到 carry 中， \_\_couter[i] 会被置空，然后将 i 自增 1 ,进入下一次循环。
+
+跳出内层 while 循环之后，carry 的结果放到 \_\_couter[i] 中。并且根据 i 的值更新 fill ，fill 用来表示在区间 [0, fill) 之间是存在索引值 i 使得有 \_\_counter[i] 不为空的，同时 \_\_counter[fill - 1] 是肯定不为空的，并且对于区间 [fill, 64) 之间的索引值 j ，\_\_counter[j] 都为空。
+
+通过两层循环，使得第一个元素的合并结果会放到 \_\_counter[0] 中，前两个元素的合并结果会放在 \_\_counter[1]，同时第三个和第四个元素的合并结果也会放到 \_\_counter[1]，前四个的合并结果会放到 counter[2]，依次类推。对于 \_\_counter[i] 而言，只有当合并的元素个数达到 2^i 才会放入其中。
+
+整个程序的实现了一个归并排序，从单个元素开始合并，然后再对合并的结果重新合并。当跳出外层 while 循环之后，程序还有一次总的合并。合并的结果会存到 \_\_counter[fill - 1] ，通过将 \_\_counter[fill - 1] 和当前的 list 进行交换。当前 list 即为已经排序链表。程序到最末尾的时候，所有的元素都又都在当前 list 中了，其他申请的临时变量都已经变成了空 list 。在程序结束的时候会调用这些 list 的析构函数释放其中的空间(都还有一个哨兵节点的空间没有释放)。
+
+	template <class _Tp, class _Alloc>
+	void list<_Tp, _Alloc>::sort()
+	{
+	  // Do nothing if the list has length 0 or 1.
+	  if (_M_node->_M_next != _M_node && _M_node->_M_next->_M_next != _M_node) {
+	    list<_Tp, _Alloc> __carry;
+	    list<_Tp, _Alloc> __counter[64];
+	    int __fill = 0;
+	    while (!empty()) {
+	      __carry.splice(__carry.begin(), *this, begin());
+	      int __i = 0;
+	      while(__i < __fill && !__counter[__i].empty()) {
+		__counter[__i].merge(__carry);
+		__carry.swap(__counter[__i++]);
+	      }
+	      __carry.swap(__counter[__i]);         
+	      if (__i == __fill) ++__fill;
+	    } 
+
+	    for (int __i = 1; __i < __fill; ++__i)
+	      __counter[__i].merge(__counter[__i-1]);
+	    swap(__counter[__fill-1]);
+	  }
+	}
+
+<div class="cut"></div>
+list 还实现了另外四个函数。 其内部的实现和上面的几个同名函数 (remove 对应 remove\_if)的实现思想是一样的，不同的是每个函数提供了一个函数指针(或者函数对象)的接口，使得能够通过提供的函数指针来实现对元素的判断或者比较等等。这里具体的实现不再细致的叙述。
+
+	  template <class _Predicate> void remove_if(_Predicate);
+	  template <class _BinaryPredicate> void unique(_BinaryPredicate);
+	  template <class _StrictWeakOrdering> void merge(list&, _StrictWeakOrdering);
+	  template <class _StrictWeakOrdering> void sort(_StrictWeakOrdering);
+
+<div class="cut"></div>
+
+[STL 的 list 分析（一）](../15/list1.html)</br>
+[STL 的 list 分析（二）](../15/list2.html)</br>
+[STL 的 list 分析（三）](../15/list3.html)</br>

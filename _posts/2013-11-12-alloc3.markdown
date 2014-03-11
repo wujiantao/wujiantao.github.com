@@ -1,0 +1,159 @@
+---
+title: STL的内存分配器（三）
+layout: post
+key: 5d7e4cdf-1cf6-4cf9-b9bc-556966a72332
+tags:
+  -allocator 
+  -STL 
+---
+
+
+
+####类模板 allocator####
+
+类模板 allocator 中有一个模板形参 \_Tp 用来表示为哪种类型的对象分配内存空间，其使用默认的 alloc 进行内存分配。其内部的构造函数和析构函数都是空的。
+<div class="cut"></div>
+
+allocate 函数中调用 \_Alloc 的 allocate 函数进行内存分配。其中 \_Alloc 是 alloc 的在类中定义的成员类型别名。
+
+这里允许申请的空间大小为 0 。第二个 void 指针在函数中没有被使用。\_Alloc 中的 allocate 函数返回的是 void\* ，但当前函数的返回的是 \_Tp\*  ，因此加了一个强制类型转换。
+
+	  _Tp* allocate(size_type __n, const void* = 0) {
+	    return __n != 0 ? static_cast<_Tp*>(_Alloc::allocate(__n * sizeof(_Tp))) 
+			    : 0;
+	  }
+
+
+<div class="cut"></div>
+deallocate 函数和 allocate 函数类似，也是直接调用 \_Alloc 的内存释放函数 (注意这里的内存释放和通常认为的内存释放不同，\_Alloc 中对于小于 \_MAX\_BYTES 的内存，会放到自由列表中重新进行使用）。
+
+	  void deallocate(pointer __p, size_type __n)
+	    { _Alloc::deallocate(__p, __n * sizeof(_Tp)); }
+
+<div class="cut"></div>
+construct 和 destory 主要用来构建对象和销毁对象。对象的构建通过定位 new 来进行构建 （placement new）。定位 new 用来在已分配的内存上构建一个对象，destory 通过调用对象的析构函数来销毁对象。这里的 construct 和 destory 都既不涉及到内存的申请也不涉及到内存的释放。
+
+	  void construct(pointer __p, const _Tp& __val) { new(__p) _Tp(__val); }
+	  void destroy(pointer __p) { __p->~_Tp(); }
+	  
+
+<div class="cut"></div>
+在 allocator 内部还有一个内嵌的类模板 在该类模板中定义了一个成员类型为 other，这个会在 alloc\_traits 中用到。
+
+	  template <class _Tp1> struct rebind {
+	    typedef allocator<_Tp1> other;
+	  };
+
+<div class="cut"></div>
+allocator 有一个特化,如下所示，当\_Tp 为 void 时，会采用以下内容进行实例化。
+这个函数中没有成员函数的定义，只是定义了一些公有的成员类型。
+
+	template<>
+	class allocator<void> {
+	public:
+	  typedef size_t      size_type;
+	  typedef ptrdiff_t   difference_type;
+	  typedef void*       pointer;
+	  typedef const void* const_pointer;
+	  typedef void        value_type;
+
+	  // nested class
+	  template <class _Tp1> struct rebind {
+	    typedef allocator<_Tp1> other;
+	  };
+	};
+
+####类模板 \_\_allocator####
+
+<div class="cut"></div>
+\_\_allocator 可以看成内存适配器 \_Alloc 的一个适配器 ，模板形参 \_Tp 表示为何种类型的对象分配内存，\_Alloc 为内存分配器 。通过它来进行实际的内存分配。
+
+	template <class _Tp, class _Alloc>
+	struct __allocator {
+		......
+	};
+
+<div class="cut"></div>
+\_\_allocator 内部显示定义了一个 \_Alloc 类型的对象。
+
+	  _Alloc __underlying_alloc;
+
+和前面 allocator 一样内部也定义了一个 other 的成员类型。
+
+	  template <class _Tp1> struct rebind {
+	    typedef __allocator<_Tp1, _Alloc> other;
+	  };
+
+<div class="cut"></div>
+\_\_allocator 中定义了两个拷贝构造函数来初始化对象。 第一个拷贝构造函数是用一个模板实参相同的对象来进行初始化。第二个用一个模板实参不同的对象来进行初始化。
+
+第一个函数没有讨论的必要，对于第二个函数从逻辑上看，好像不太合理，但其实是合理的，因为拷贝构造函数中是只是对 \_Alloc 类型的成员变量 \_\_underlying\_alloc 进行了初始化。第一个模板实参是什么类型并不影响当前对象。
+
+	  __allocator(const __allocator& __a) __STL_NOTHROW
+	    : __underlying_alloc(__a.__underlying_alloc) {}
+	  template <class _Tp1, _Alloc> 
+	  __allocator(const __allocator<_Tp1, _Alloc>& __a) __STL_NOTHROW
+	    : __underlying_alloc(__a.__underlying_alloc) {}
+
+
+<div class="cut"></div>
+其内部的实现和上面的 allocator 不同之处在于前面的 allocator 是用 alloc 的静态函数来实现，并没有声明对象，而 \_\_allocator 中定义了一个 \_Alloc 类型的对象，由对象来进行内存的分配。
+
+\_\_allocator 有一个偏特化,如下所示，当第一个模板实参为 void 是采用下面的定义进行实例化。
+
+	template <class _Alloc>
+	class __allocator<void, _Alloc> {
+	  typedef size_t      size_type;
+	  typedef ptrdiff_t   difference_type;
+	  typedef void*       pointer;
+	  typedef const void* const_pointer;
+	  typedef void        value_type;
+
+	  template <class _Tp1> struct rebind {
+	    typedef __allocator<_Tp1, _Alloc> other;
+	  };
+	};
+
+<div class="cut"></div>
+\_Alloc\_traits 也可以看成是一个 \_Allocator 的适配器。 首先定义了一个静态的 bool 类型的常量 \_S\_instanceless，在这里初始化为false 。同时在内部定义了一个成员类型 allocator\_type 。\_S\_instanceless 为 false 表示 \_Allocator 的不同实例之间是有区别的，当 \_S\_instanceless 为 true 时表示 \_Allocator 的不同实例之间是没有区别的。
+
+从上面的声明可以看成 \_Allocator 中应该有一个类似于 allocator 或者 \_\_allocator 中定义的嵌套模板 rebind。同时这里应该也可以运用自己定义的内存管理实现来实例化 \_Allocator。只要在你的实现中有这个嵌套模板 rebind 的定义。
+
+	template <class _Tp, class _Allocator>
+	struct _Alloc_traits
+	{
+	  static const bool _S_instanceless = false;
+	  typedef typename _Allocator::__STL_TEMPLATE rebind<_Tp>::other 
+		  allocator_type;
+	};
+
+
+\_Alloc\_traits 还有五个偏特化的定义分别为 分别是用 allocator，\_\_malloc\_alloc\_template，\_\_default\_alloc\_template，debug\_alloc，\_\_allocator来 作为 \_Alloc\_traits 的第二个模板实参。
+
+其中 \_\_allocator 中又可以用 \_malloc\_alloc\_template ，\_\_default\_alloc\_template ，debug\_alloc 来进行实例化，故一个有七个不同的特化选择。其中每个特化中的 \_S\_instanceless 都初始化为 true 。且每个特化的定义中多了一个 \_Alloc\_type ，该类型能够通过静态的接口为 Tp 类型的对象实现内存的分配和回收，就是实际中可以通过 allocate\_type 的实例进行类存分配和回收，也可一通过 \_Alloc\_type 的静态实现（可以通过作用域运算符 :: 进行调用）来实现内存的分配和回收。
+
+	template <class _Tp, class _Tp1>
+	struct _Alloc_traits<_Tp, allocator<_Tp1> >
+	{
+	  static const bool _S_instanceless = true;
+	  typedef simple_alloc<_Tp, alloc> _Alloc_type;
+	  typedef allocator<_Tp> allocator_type;
+	};
+
+	template <class _Tp, class _Tp1, bool __thr, int __inst>
+	struct _Alloc_traits<_Tp, 
+			      __allocator<_Tp1, 
+					  __default_alloc_template<__thr, __inst> > >
+	{
+	  static const bool _S_instanceless = true;
+	  typedef simple_alloc<_Tp, __default_alloc_template<__thr,__inst> > 
+		  _Alloc_type;
+	  typedef __allocator<_Tp, __default_alloc_template<__thr,__inst> > 
+		  allocator_type;
+	};
+
+<div class="cut"></div>
+
+[STL的内存分配器（一）](../12/alloc1.html)</br>
+[STL的内存分配器（二）](../12/alloc2.html)</br>
+[STL的内存分配器（三）](../12/alloc3.html)</br>

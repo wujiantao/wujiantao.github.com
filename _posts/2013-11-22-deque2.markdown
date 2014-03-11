@@ -1,0 +1,179 @@
+---
+title: STL 的 deque 分析（二）
+layout: post
+key: 476e3c18-a6b3-494f-a3cf-d4a49a59e2ae
+tags:
+  -deque 
+  -STL 
+---
+
+
+#### 类模板 \_Deque\_alloc\_base####
+
+stl\_deque.h 中为 deque 的内存分配定义了一个类模板 \_Deque\_alloc\_base 。\_Deque\_alloc\_base 有三个模板形参，分别为 \_Tp, \_Alloc, \_\_is\_static ，其中 \_Tp 用来表示为何种类型的数据分配内存，以便在内存分配时分配适当的空间 (通过 sizeof 来计算出) 。\_Alloc 用来表示内存分配器。is\_static 用来表示 \_Alloc 的不同实例是否是有区别的。
+
+\_Deque\_alloc\_base 中定义了一个成员类型 allocator\_type 和一个成员类型 \_Map\_alloctor\_type。
+
+	  typedef typename _Alloc_traits<_Tp,_Alloc>::allocator_type allocator_type;
+	  typedef typename _Alloc_traits<_Tp*, _Alloc>::allocator_type
+		  _Map_allocator_type;
+
+<div class="cut"></div>
+定义了两个成员变量 \_M\_node\_allocator 和 \_M\_map\_allocator。其中 \_M\_node\_allocator 为 deque 中的节点分配空间，而 \_M\_map\_allocator 为 deque 中 \_M\_map 的元素分配空间。同时定义了两个变量 \_M\_map 和 \_M\_map\_size，其中 \_M\_map 维护一个指针数组，数组中存储的每一个元素都是某一个内存块的首地址。\_M\_map\_size 表示 \_M\_map 中的元素个数。
+
+	  allocator_type      _M_node_allocator;
+	  _Map_allocator_type _M_map_allocator;
+	  _Tp** _M_map;
+	  size_t _M_map_size;
+
+<div class="cut"></div>
+构造函数中分别对 \_M\_node\_allocator 和 \_M\_map\_allocator 进行初始化。
+
+	  _Deque_alloc_base(const allocator_type& __a)
+	    : _M_node_allocator(__a), _M_map_allocator(__a),
+	      _M_map(0), _M_map_size(0)
+	  {}
+
+<div class="cut"></div>
+\M\_allocate\_node  函数为节点分配内存空间，但函数不是为单独的节点分配内存空间，是为能够容纳 \_S\_buffer\_size() 个元素的内存块分配空间，并将该内存块的首地址存放在 \_M\_map 的某个元素中。
+
+	  _Tp* _M_allocate_node() {
+	    return _M_node_allocator.allocate(__deque_buf_size(sizeof(_Tp)));
+	  }
+
+<div class="cut"></div>
+\_M\_deallocate\_node 回收以 \_M\_map 中某个元素为首地址的内存空间。
+
+	  void _M_deallocate_node(_Tp* __p) {
+	    _M_node_allocator.deallocate(__p, __deque_buf_size(sizeof(_Tp)));
+	  }
+
+<div class="cut"></div>
+函数 \_M\_allocate\_map 为 deque 中的 \_M\_map 分配空间，\_M\_map 中存储的元素都是指针，这些指针都指向不同首地址，deque 中的元素就存储在以 \_M\_map 的元素为首地址的空间中。通过 \_M\_map 能够将这些分属不同内存空间的地址能够像二维数组那样组织在一起。为 \_M\_map 分配 \_\_n 个元素所需的空间实际就是分配 \_\_n 个指针所需的空间。
+
+	  _Tp** _M_allocate_map(size_t __n) 
+	    { return _M_map_allocator.allocate(__n); }
+	  void _M_deallocate_map(_Tp** __p, size_t __n) 
+	    { _M_map_allocator.deallocate(__p, __n); }
+
+
+<div class="cut"></div>
+####\_Deque\_alloc\_base 的偏特化定义####
+
+\_Deque\_alloc\_base 有一个偏特化定义，当 is\_static 为 true 时使用偏特化定义。在这个定义中没有定义相应的实例来进行内存分配，而是定义了两个成员类型 \_Node\_alloc\_type 和 \_Map\_alloc\_typ 用这两个类型的静态成员函数来进行内存分配和释放。其中 \_Node\_alloc\_type 的静态函数为 deque 中的节点分配内存，用 \_Map\_alloc\_type 为 deque 中的 _M_map 分配内存。
+
+	  typedef typename _Alloc_traits<_Tp, _Alloc>::_Alloc_type _Node_alloc_type;
+	  typedef typename _Alloc_traits<_Tp*, _Alloc>::_Alloc_type _Map_alloc_type;
+	  
+<div class="cut"></div>
+####类模板 \_Deque\_base####
+
+类模板 \_Deque\_base 继承自 \_Deque\_alloc\_base，有两个模板形参，其中 \_Tp 表示为何种类型的数据分配内存, \_Alloc 表示内存分配器。在实例化 \_Deque\_alloc\_base 时首先用 \_Alloc\_traits<\_Tp, \_Alloc>::\_S\_instanceless 来实例化 is\_static ，然后用 \_Tp 和 \_Alloc 来作为 \_Deque\_alloc\_base 的另外两个模板实参。从而实例化 \_Deque\_alloc\_base 。
+
+在 \_Deque\_base 内部定义了两个成员类型分别为 allocator\_type 和 iterator 。
+
+	  typedef typename _Base::allocator_type allocator_type;
+	  typedef _Deque_iterator<_Tp,_Tp&,_Tp*>             iterator;
+
+<div class="cut"></div>
+\_Deque\_base 中定义了两个成员变量 \_M\_start 和 \_M\_finish，\_M\_start 指向 deque 中第一个元素所在的位置， \_M\_finish 作为 deque 中的结束标记指向的是 deque 中最后一个元素所在位置的下一个位置。
+
+	  iterator _M_start;
+	  iterator _M_finish;
+
+<div class="cut"></div>
+构造函数中首先用 allocator\_type 类型的实例 \_\_a 初始化基类，具体的内存分配和回收功能是由基类实现，派生类中只是调用了基类的功能。然后将 \_M\_start 和 \_M\_finish 初始化为默认值。其中 \_M\_start 和 \_M\_finish 是在类模板中定义的两个成员变量，类型为上面定义的成员类型 iterator 。在函数体中调用了 \_M\_initialize\_map(\_\_num\_elements) 来为 \_M\_map 初始化 \_\_num\_elements 个元素。
+
+	  _Deque_base(const allocator_type& __a, size_t __num_elements)
+	    : _Base(__a), _M_start(), _M_finish()
+	    { _M_initialize_map(__num_elements); }
+
+
+<div class="cut"></div>
+\_M\_initialize\_map 函数中首先计算 \_\_num\_elements 需要多少个内存块。deque 中 \_M\_finish 作为一个结束标记，并不指向特定的元素， 初始化后 \_M\_finish 指向的最后一个元素所在位置的下一个位置。但尽管 \_M\_finish 不指向特定的元素，它指向的位置也需要是一个有效地址。所以如果 \_\_num\_elements 刚好为 \_\_deque\_buf\_size(sizeof(\_Tp)) 时其实需要两列。因为 \_M\_finish 作为结束标记需要放在另一列上，\_num\_elements 个元素所真正所占用的列就为函数第一个表达式所计算得出的值。
+
+然后对 \_M\_map\_size 进行更新，\_M\_map\_size 是继承自基类的成员。选择 \_S\_initialize\_map\_size 和 \_\_num\_nodes + 2 中的一个较大值赋值给它。其中 \_S\_initialize\_map\_size 是一个枚举值，值为 8 。所以 \_M\_map\_size 的初始值不会低于 8 。然后调用 \_M\_allocate\_map 函数为 \_M\_map 分配空间，\_M\_map 中存储的元素都是指针，这些指针用来指向的一个内存块的首地址。\_M\_map 得到存储这些指针的连续空间的首地址。
+
+然后为临时变量 \_\_nstart 和 \_\_nfinish 进行赋值，\_\_nstart 和 \_\_nfinish 最后会用来对 \_M\_start 和 \_M\_finish 进行初始化。\_nstart 和 \_nfinish - 1 分别指向 \_M\_map 中的某个元素，deque 中的第一个元素所在的内存块的首地址是 \_nstart 指向的元素。deque 中的最后一个元素的下一个位置(\_M\_finish)所在的内存块的首地址存储在 \_\_nfinish - 1 所指向的元素。
+
+\_\_nstart = \_M\_map + (\_M\_map\_size - \_\_num\_nodes) / 2 ，因为 \M\_map\_size 至少比 \_num\_nodes 大 2 ， 因此保证 \_M\_map 中 \_\_nstart 指向的元素之前至少还有一个元素 。\_\_nfinish = \_\_nstart + num\_nodes ，结合对 \_\_nstart 的赋值， \_\_nfinish = \_M\_map + (\_M\_map\_size + \_\_num\_nodes) / 2 ，但由于 \_M\_map\_size 比 \_num\_nodes 至少大 2 ，且 \_M\_map 的最后一个元素为 \_M\_map + \_M\_map\_size - 1 , 所以保证 \_\_nfinish 没有超出最后一个元素，而实际上结束标记所在的内存块的首地址存储在 \_\_nfinish - 1 中。
+
+再调用 \_M\_create\_nodes 来为 \_\_nstart 到 \_\_nfinish 之间的元素分配内存空间，即分配存储 deque 节点的内存块，并将内存块的首地址赋值给 \_\_nstart 到 \_\_nfinish 之间的元素(不包括 \_\_nfinish 所指向的元素) 。\_M\_create\_nodes 的定义稍后进行介绍，这里内存分配的语句放在 try 语句块中，防止内存分配出现错误，使得在出现错误的时候程序能够回收错误发生之前已经分配的内存。\_\_nfinish 肯定至少比 \_\_nstart 要大一个列，那么保证至少 \_\_nstart 指向的元素会在 \_M\_create\_nodes 中为其申请空间。
+
+最后为 \_M\_start 和 \_M\_finish 进行赋值，其中 \_M\_start 所在的列为 \_\_nstart 指向的列，\_M\_finish 所在的列为 \_\_nfinish 指向的列的前一列。而 \_M\_start 的中 \_M\_cur 指向的的元素为 \_M\_start 所在列的第一个元素，\_M\_finish 中的 \_M\_cur 指向的元素根据 \_num\_elements % \_\_deque\_buf\_size(sizeof(\_Tp)) 来确定。
+
+	template <class _Tp, class _Alloc>
+	void
+	_Deque_base<_Tp,_Alloc>::_M_initialize_map(size_t __num_elements)
+	{
+	  size_t __num_nodes = 
+	    __num_elements / __deque_buf_size(sizeof(_Tp)) + 1;
+
+	  _M_map_size = max((size_t) _S_initial_map_size, __num_nodes + 2);
+	  _M_map = _M_allocate_map(_M_map_size);
+
+	  _Tp** __nstart = _M_map + (_M_map_size - __num_nodes) / 2;
+	  _Tp** __nfinish = __nstart + __num_nodes;
+	    
+	  __STL_TRY {
+	    _M_create_nodes(__nstart, __nfinish);
+	  }
+	  __STL_UNWIND((_M_deallocate_map(_M_map, _M_map_size), 
+			_M_map = 0, _M_map_size = 0));
+	  _M_start._M_set_node(__nstart);
+	  _M_finish._M_set_node(__nfinish - 1);
+	  _M_start._M_cur = _M_start._M_first;
+	  _M_finish._M_cur = _M_finish._M_first +
+		       __num_elements % __deque_buf_size(sizeof(_Tp));
+	}
+
+<div class="cut"></div>
+构造函数对基类进行初始化，没有对 \_M\_map 进行初始化。
+
+	  _Deque_base(const allocator_type& __a) 
+	    : _Base(__a), _M_start(), _M_finish() {}
+
+<div class="cut"></div>
+函数 \_M\_create\_nodes 为 deque 分配 \_\_nfinish - \_\_nstart 个内存块，每个内存块的大小为 \_S\_buffer\_size()，内存块的首地址存放在 \_M\_map 的对应元素中。 通过调用基类的 \_M\_allocate\_node 函数来分配内存块，将内存分配放在 try 语句块中了，防止在内存分配发生错误时，能够对错误发生之前已分配的内存进行回收。
+
+	template <class _Tp, class _Alloc>
+	void _Deque_base<_Tp,_Alloc>::_M_create_nodes(_Tp** __nstart, _Tp** __nfinish)
+	{
+	  _Tp** __cur;
+	  __STL_TRY {
+	    for (__cur = __nstart; __cur < __nfinish; ++__cur)
+	      *__cur = _M_allocate_node();
+	  }
+	  __STL_UNWIND(_M_destroy_nodes(__nstart, __cur));
+	}
+
+<div class="cut"></div>
+\_M\_destory\_nodes 用来对已经分配的内存块进行回收，通过调用基类的 \_M\_deallocate\_node 来实现。
+
+	template <class _Tp, class _Alloc>
+	void
+	_Deque_base<_Tp,_Alloc>::_M_destroy_nodes(_Tp** __nstart, _Tp** __nfinish)
+	{
+	  for (_Tp** __n = __nstart; __n < __nfinish; ++__n)
+	    _M_deallocate_node(*__n);
+	}
+
+<div class="cut"></div>
+\_Deque\_base 中的析构函数用来对已分配的内存进行回收，回收的方法是首先将以 \_M\_map 中元素为首地址的内存块进行回收，然后对 \_M\_map 分配的空间进行回收。
+
+	template <class _Tp, class _Alloc>
+	_Deque_base<_Tp,_Alloc>::~_Deque_base() {
+	  if (_M_map) {
+	    _M_destroy_nodes(_M_start._M_node, _M_finish._M_node + 1);
+	    _M_deallocate_map(_M_map, _M_map_size);
+	  }
+	}
+
+<div class="cut"></div>
+
+[STL 的 deque 分析（一）](../22/deque1.html)</br>
+[STL 的 deque 分析（二）](../22/deque2.html)</br>
+[STL 的 deque 分析（三）](../22/deque3.html)</br>
+[STL 的 deque 分析（四）](../22/deque4.html)</br>
+[STL 的 deque 分析（五）](../22/deque5.html)</br>
+[STL 的 deque 分析（六）](../22/deque6.html)</br>

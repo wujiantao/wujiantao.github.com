@@ -1,0 +1,247 @@
+---
+title: STL 的 list 分析（二）
+layout: post
+key: b1cf1148-5863-4c76-94e1-e42787b0aa93
+tags:
+  -list 
+  -STL 
+---
+
+
+
+####类模板 list####
+
+list 类是 \_List\_base 的一个派生类，其定义了两个模板形参分别为 \_Tp 和 \_Alloc。其中 \_Tp 表示list 中节点数据域的类型 (即 \_List\_node 中 \_M\_data 的类型），\_Alloc 表示内存分配器。 
+
+list 中定义了一系列的成员类型，这里列举几个加以说明。 \_Base 是基类类型的一个别名，list 中定义了一个 iterator 的成员类型，它是 \_List\_iterator<\_Tp, \_Tp&, \_Tp\*> 的一个类型别名。在 iterator 中封装了一些对 \_List\_node\_base 指针的操作。reverse\_iterator 是用迭代器实例化的一个反向迭代器的类型别名。
+
+	  typedef _List_base<_Tp, _Alloc> _Base;
+	  typedef _List_iterator<_Tp,_Tp&,_Tp*>             iterator;
+	  typedef reverse_iterator<iterator>       reverse_iterator;
+
+<div class="cut"></div>
+\_M\_create\_node 用来为一个 \_List\_node<\_Tp> 的对象申请空间用给定值初始化对象。通过调用\_Construct 来在 _M_data 所在位置初始化一个值为 \_\_x 类型为 \_Tp 的对象。 \_M\_create\_node 还有一个形参为空的重载函数，那样会用 \_Tp 的默认构造函数构造一个对象。
+
+	  _Node* _M_create_node(const _Tp& __x)
+	  {
+	    _Node* __p = _M_get_node();
+	    __STL_TRY {
+	      _Construct(&__p->_M_data, __x);
+	    }
+	    __STL_UNWIND(_M_put_node(__p));
+	    return __p;
+	  }
+
+<div class="cut"></div>
+构造函数中用给定 const allocator\_type 类型的实例 \_\_a 来初始化基类。
+
+	  explicit list(const allocator_type& __a = allocator_type()) : _Base(__a) {}
+
+<div class="cut"></div>
+begin 函数 和 end 函数 分别返回 list 的第一个元素的位置和最后一个元素的下一个位置。 在 list 初始化时调用基类的构造函数是会申请一个大小能容纳 \_List\_node<\_Tp> 的空间，并构造一个哨兵节点，使得哨兵节点的下一个元素为链表的表头，而哨兵节点的上一个节点为链表的表尾。
+
+begin 函数中加了一个 (\Node\* 的强制转换)， end 中没有，这是因为 \_M\_node->\_M\_next 是一个 \_List\_node\_base 的指针，但\_List\_node\_base 的指针是不能通过隐式转换转换为 iterator 类型的，尽管 \_M\_node->\_M\_next 实际上指向的是一个 \_List\_node<\_Tp> 类型的对象。通过强制类型转换之后，使得 begin 的返回值能够通过隐式类型转换转换为 iterator 。 但 end 中之所以不需要强制类型转换是因为 \_M\_node 本身就是一个 \_List\_node<\_Tp> 类型的指针(前面在介绍 \_List\_iterator 时讲到过 \_Node\* 可以隐式转换为 \_List\_iterator 类型)。
+
+	  iterator begin()             { return (_Node*)(_M_node->_M_next); }
+	  iterator end()             { return _M_node; }
+
+<div class="cut"></div>
+rbegin 和 rend 都返回的是一个 reverse\_iterator 类型的变量。通过 rbegin 和 rend 能够实现对 list 逆向进行遍历。
+
+	  reverse_iterator rbegin() 
+	    { return reverse_iterator(end()); }
+	  reverse_iterator rend()
+	    { return reverse_iterator(begin()); }
+
+<div class="cut"></div>
+empty 函数判断 list 是否为空。函数通过检测当前是否只有哨兵节点来判断整个 list 是否为空。
+
+	  bool empty() const { return _M_node->_M_next == _M_node; }
+
+<div class="cut"></div>
+front 函数返回 list 的第一个元素， back 返回 list 的最后一个元素。注意 end() 返回的是一个 iterator类型的变量，该返回值实际上是指向的是哨兵节点，通过前置的自减操作符该返回值所表示的 iterator 会指向哨兵节点之前的元素，也就是最后一个元素。
+
+	  reference front() { return *begin(); }
+	  reference back() { return *(--end()); }
+
+<div class="cut"></div>
+swap 函数通过更改 \_M\_node 来达到更改 list 的目的。
+
+	  void swap(list<_Tp, _Alloc>& __x) { __STD::swap(_M_node, __x._M_node); }
+
+<div class="cut"></div>
+insert 函数实现在指定位置插入一个元素。函数中首先用第二个形参 \_\_x 申请空间并构造一个对象。然后将这个元素插入到 \_\_postion 指示的位置之前。insert 的返回值是一个迭代器，指向的是新插入的元素。
+
+	  iterator insert(iterator __position, const _Tp& __x) {
+	    _Node* __tmp = _M_create_node(__x);
+	    __tmp->_M_next = __position._M_node;
+	    __tmp->_M_prev = __position._M_node->_M_prev;
+	    __position._M_node->_M_prev->_M_next = __tmp;
+	    __position._M_node->_M_prev = __tmp;
+	    return __tmp;
+	  }
+
+<div class="cut"></div>
+list 中有一个 insert 的函数模板，和之前碰到的很多情况一样，根据模板形参的类型不同，insert 会调用不同的 \_M\_insert\_dispatch 函数。还是和之前的策略一样，判断模板形参是否为整型，如果是整型，则说明不是一个迭代器，将第第二个形参作为要插入的元素个数，第三个形参作为要插入的元素值。
+
+	  template <class _InputIterator>
+	  void insert(iterator __pos, _InputIterator __first, _InputIterator __last) {
+	    typedef typename _Is_integer<_InputIterator>::_Integral _Integral;
+	    _M_insert_dispatch(__pos, __first, __last, _Integral());
+	  }
+
+<div class="cut"></div>
+\_M\_insert\_dispatch 一个有两个定义。第一个定义实现在指定位置插入多个相同的元素。如下所示通过 \_M\_fill\_insert 来实现这一功能。
+
+	  template<class _Integer>
+	  void _M_insert_dispatch(iterator __pos, _Integer __n, _Integer __x,
+				  __true_type) {
+	    _M_fill_insert(__pos, (size_type) __n, (_Tp) __x);
+	  }
+
+<div class="cut"></div>
+第二个定义，则是实现在指定位置插入由两个迭代器包围的区域的所有元素 (注意不包括 \_\_last 指示的位置的元素），用 insert 函数在指定位置插入一个元素的定义前面已经进行了介绍。这里整个循环中都没有对 \_\_position 的值进行修改，每次插入都会将当前元素插入到 \_\_position 之前，假设插入前 \_\_position 所在位置的元素是 list 的第 \_\_i 个元素，那么插入后 \_\_position 所在位置的元素则成了第 \_\_i + 1 个元素，那么当下一个元素再插入到 \_\_position 之前时就会插入到当前插入的元素和 \_\_position 所在位置的元素之间。
+
+	template <class _Tp, class _Alloc> template <class _InputIter>
+	void 
+	list<_Tp, _Alloc>::_M_insert_dispatch(iterator __position,
+					      _InputIter __first, _InputIter __last,
+					      __false_type)
+	{
+	  for ( ; __first != __last; ++__first)
+	    insert(__position, *__first);
+	}
+
+<div class="cut"></div>
+\_M\_fill\_insert 函数的实现也比较简单 。
+
+	template <class _Tp, class _Alloc>
+	void 
+	list<_Tp, _Alloc>::_M_fill_insert(iterator __position,
+					  size_type __n, const _Tp& __x)
+	{
+	  for ( ; __n > 0; --__n)
+	    insert(__position, __x);
+	}
+
+<div class="cut"></div>
+insert 函数用来在指定位置插入多个值为 \_\_x 的 \_Tp 类型的对象。前面的函数模板虽然也能实现在指定位置插入多个元素的功能，但函数模板中第二个和第三个形参的类型要求一致，这里没有这样的要求
+
+	  void insert(iterator __pos, size_type __n, const _Tp& __x)
+	    { _M_fill_insert(__pos, __n, __x); }
+
+<div class="cut"></div>
+push\_front 函数在表头插入一个新元素，push\_back 是在表尾插入一个新元素，对于 list 来说在任何位置插入元素代价都是一样的，函数直接调用了 insert 函数来实现该功能。
+
+	  void push_front(const _Tp& __x) { insert(begin(), __x); }
+	  void push_back() {insert(end());}
+
+<div class="cut"></div>
+erase 函数删除指定位置的一个元素。函数调整 \_\_postion 前后元素的 \_M\_next 和 \_M\_prev 值。并销毁被删除的对象，最后释放该元素的空间。返回值是指向删除之前 \_\_postion 之后那个元素的迭代器。
+
+	  iterator erase(iterator __position) {
+	    _List_node_base* __next_node = __position._M_node->_M_next;
+	    _List_node_base* __prev_node = __position._M_node->_M_prev;
+	    _Node* __n = (_Node*) __position._M_node;
+	    __prev_node->_M_next = __next_node;
+	    __next_node->_M_prev = __prev_node;
+	    _Destroy(&__n->_M_data);
+	    _M_put_node(__n);
+	    return iterator((_Node*) __next_node);
+	  }
+
+<div class="cut"></div>
+erase  函数删除 \_\_first 和 \_\_last 之间的所有元素。，函数通过一个一个的删除来实现该功能。
+
+	template <class _Tp, class _Alloc>
+	typename list<_Tp,_Alloc>::iterator list<_Tp, _Alloc>::erase(iterator __first, 
+								     iterator __last)
+	{
+	  while (__first != __last)
+	    erase(__first++);
+	  return __last;
+	}
+
+<div class="cut"></div>
+clear 函数会删除 list 中的所有元素，注意这里只是删除所有元素，但不会删除哨兵节点，因为 list 还是可用状态，仍然有可能重新对链表进行更新。
+
+	  void clear() { _Base::clear(); }
+
+<div class="cut"></div>
+resize 函数将 list 中的元素个数重新设定，如果元素个数少于要求个数，则插入数据为 \_\_x 的元素，否则删除多余的元素。
+
+	template <class _Tp, class _Alloc>
+	void list<_Tp, _Alloc>::resize(size_type __new_size, const _Tp& __x)
+	{
+	  iterator __i = begin();
+	  size_type __len = 0;
+	  for ( ; __i != end() && __len < __new_size; ++__i, ++__len)
+	    ;
+	  if (__len == __new_size)
+	    erase(__i, end());
+	  else                          // __i == end()
+	    insert(end(), __new_size - __len, __x);
+	}
+
+<div class="cut"></div>
+pop\_front 函数和 pop\_back 函数分别弹出第一个和最后一个元素。函数没有返回值。如果希望弹出元素的同时还有返回值，可以调用 erase。但 erase 返回的是指向被删除元素的下一位置的元素。
+
+	  void pop_front() { erase(begin()); }
+	  void pop_back() { 
+	    iterator __tmp = end();
+	    erase(--__tmp);
+	  }
+
+<div class="cut"></div>
+构造函数将当前 list 初始化成一个含有指定元素个数，且每个元素的值都为指定值的链表。如果不指定元素的值，则每个元素都采用默认值。
+
+	  list(size_type __n, const _Tp& __value,
+	       const allocator_type& __a = allocator_type())
+	    : _Base(__a)
+	    { insert(begin(), __n, __value); }
+
+	  explicit list(size_type __n)
+	    : _Base(allocator_type())
+	    { insert(begin(), __n, _Tp()); }
+
+<div class="cut"></div>
+构造函数根据 \_\_first 的类型会有两种初始化的方式，如果 \_\_first 为整型，则用 \_\_first 个值为 \_\_last 的元素对 list 进行初始化。如果 \_\_first 不为整型，则用迭代器 \_\_first 到 \_\_last 之间的内容对其进行初始化。具体的类型检测由 insert 函数去检测。并最终insert 会调用不同的实现。
+
+	  template <class _InputIterator>
+	  list(_InputIterator __first, _InputIterator __last,
+	       const allocator_type& __a = allocator_type())
+	    : _Base(__a)
+	    { insert(begin(), __first, __last); }
+
+<div class="cut"></div>
+构造函数用指定的 list 对当前 list 进行初始化。
+
+	  list(const list<_Tp, _Alloc>& __x) : _Base(__x.get_allocator())
+	    { insert(begin(), __x.begin(), __x.end()); }
+
+<div class="cut"></div>
+函数 operator= 是用一个 list 来对另一个 list 进行赋值。用一个 list 进行赋值和用 list 进行初始化是有区别的，首先初始化时当前 list 为空，只需将另一个 list 中的元素插入进来就行了。而赋值是当前 list 可能是有元素存在的，如果元素的个数比另一个多，还需要删除多余的元素。否则如果元素的个数比用来赋值的链表要少，则插入剩余的元素。
+
+	template <class _Tp, class _Alloc>
+	list<_Tp, _Alloc>& list<_Tp, _Alloc>::operator=(const list<_Tp, _Alloc>& __x)
+	{
+	  if (this != &__x) {
+	    iterator __first1 = begin();
+	    iterator __last1 = end();
+	    const_iterator __first2 = __x.begin();
+	    const_iterator __last2 = __x.end();
+	    while (__first1 != __last1 && __first2 != __last2) 
+	      *__first1++ = *__first2++;
+	    if (__first2 == __last2)
+	      erase(__first1, __last1);
+	    else
+	      insert(__last1, __first2, __last2);
+	  }
+	  return *this;
+	}
+
+<div class="cut"></div>
+
+[STL 的 list 分析（一）](../15/list1.html)</br>
+[STL 的 list 分析（二）](../15/list2.html)</br>
+[STL 的 list 分析（三）](../15/list3.html)</br>

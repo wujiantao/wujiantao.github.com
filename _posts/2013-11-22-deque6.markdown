@@ -1,0 +1,271 @@
+---
+title: STL 的 deque 分析（六）
+layout: post
+key: 8894aa28-a217-421e-98d0-04858e6040e0
+tags:
+  -deque 
+  -STL 
+---
+
+
+\_M\_insert\_aux 函数是在指定位置 \_\_pos 前面插入 \_\_n 个值为 \_\_x 的元素。
+
+元素的插入会涉及到原来元素的整体挪动。和前面类似，根据插入位置 \_\_pos 分两种情况进行分析。
+
+第一种情况 \_\_pos 在 deque 的前半部分。首先通过 \_M\_reserve\_elements\_at\_front 在 \_M\_start 之前分配能够容纳 \_\_n 个新元素的空间。注意调用 \_M\_reserve\_elements\_at\_front 之后 \_\_pos 可能会失效，需要对其进行重新赋值。在当前这种情况下，又细分了两种情况，
+
+情况 1 是插入操作进行之前 \_\_pos 之前的元素个数 \_\_elems\_before 大于或等于要插入的元素个数 \_\_n。此时要调用 uninitialized\_copy 将 deque 的前 \_\_n 个元素往前移动 \_\_n 个位置，然后调用 copy 将 \_\_pos 之前剩余的元素也移动 \_\_n 个位置。接着在 \_\_pos 之前插入 \_\_n 个新元素。
+
+情况 2 \_\_elems\_before 小于 \_\_n，则需要先将原先 deque 中 \_\_pos 之前的元素整体往前移动 \_\_n 个位置，新分配的空间中还有 \_\_n - elems\_before 个位置没有使用，应该填充新元素。原先 \_M\_start 到 \_\_pos 之间的位置上也应填充新元素。uninitialized\_copy\_fill 实现了前两个功能，该函数先将 \_M\_start 到 \_\_pos 之间的元素复制到 \_\_new\_start 开始的地址，这相当于将 \_M\_start 到 \_\_pos 之间的元素往前挪动了 \_\_n 个位置，剩余的部分会用 \_\_x\_copy 来进行填充，该函数是 \_\_uninitialized\_copy 和 \_\_uninitialized\_fill 的一个组合。最后调用 fill 函数将 \_\_old\_start 到 \_\_pos 之间的位置也填充上新元素。
+
+第二种情况是如果 \_\_pos 在 deque 的后半部分，则首先在 deque 的尾部分配 \_\_n 个能容纳新元素的空间。然后将 \_\_pos 之后的元素 (包括 \_\_pos 指示的元素) 整体向后移动 \_\_n 个位置，最后在 \_\_pos 之后 (包括 \_\_pos 位置) 插入 \_\_n 个元素。整体的实现和第一种情况比较类似，这里不再详述。
+
+	template <class _Tp, class _Alloc>
+	void deque<_Tp,_Alloc>::_M_insert_aux(iterator __pos,
+					      size_type __n,
+					      const value_type& __x)
+	{
+	  const difference_type __elems_before = __pos - _M_start;
+	  size_type __length = this->size();
+	  value_type __x_copy = __x;
+	  if (__elems_before < difference_type(__length / 2)) {
+	    iterator __new_start = _M_reserve_elements_at_front(__n);
+	    iterator __old_start = _M_start;
+	    __pos = _M_start + __elems_before;
+	    __STL_TRY {
+	      if (__elems_before >= difference_type(__n)) {
+		iterator __start_n = _M_start + difference_type(__n);
+		uninitialized_copy(_M_start, __start_n, __new_start);
+		_M_start = __new_start;
+		copy(__start_n, __pos, __old_start);
+		fill(__pos - difference_type(__n), __pos, __x_copy);
+	      }
+	      else {
+		__uninitialized_copy_fill(_M_start, __pos, __new_start, 
+					  _M_start, __x_copy);
+		_M_start = __new_start;
+		fill(__old_start, __pos, __x_copy);
+	      }
+	    }
+	    __STL_UNWIND(_M_destroy_nodes(__new_start._M_node, _M_start._M_node));
+	  }
+	  else {
+	    iterator __new_finish = _M_reserve_elements_at_back(__n);
+	    iterator __old_finish = _M_finish;
+	    const difference_type __elems_after = 
+	      difference_type(__length) - __elems_before;
+	    __pos = _M_finish - __elems_after;
+	    __STL_TRY {
+	      if (__elems_after > difference_type(__n)) {
+		iterator __finish_n = _M_finish - difference_type(__n);
+		uninitialized_copy(__finish_n, _M_finish, _M_finish);
+		_M_finish = __new_finish;
+		copy_backward(__pos, __finish_n, __old_finish);
+		fill(__pos, __pos + difference_type(__n), __x_copy);
+	      }
+	      else {
+		__uninitialized_fill_copy(_M_finish, __pos + difference_type(__n),
+					  __x_copy, __pos, _M_finish);
+		_M_finish = __new_finish;
+		fill(__pos, __old_finish, __x_copy);
+	      }
+	    }
+	    __STL_UNWIND(_M_destroy_nodes(_M_finish._M_node + 1, 
+					  __new_finish._M_node + 1));
+	  }
+	}
+
+<div class="cut"></div>
+
+insert 函数模板根据内部模板实参的类型，分别调用函数模板 \_M\_insert\_dispatch 的两种不同定义。
+
+	  template <class _InputIterator>
+	  void insert(iterator __pos, _InputIterator __first, _InputIterator __last) {
+	    typedef typename _Is_integer<_InputIterator>::_Integral _Integral;
+	    _M_insert_dispatch(__pos, __first, __last, _Integral());
+	  }
+	  
+<div class="cut"></div>
+
+\_M\_insert\_dispatch 函数通过调用 \_M\_fill\_insert 为 deque 在指定位置插入指定个数的特定元素。
+
+	  template <class _Integer>
+	  void _M_insert_dispatch(iterator __pos, _Integer __n, _Integer __x,
+		      __true_type) {
+	    _M_fill_insert(__pos, (size_type) __n, (value_type) __x);
+	  }
+
+<div class="cut"></div>
+
+\_M\_insert\_dispatch 函数为 deque 在指定位置 \_\_pos 前插入两个迭代器\_\_first 和 \_\_last 之间的所有元素。根据 \_InputIterator 迭代器类型的不同，函数内部会调用另一个函数模板 insert ,与前面的函数模板只有三个形参不同，该函数模板一个有四个形参。
+
+	  template <class _InputIterator>
+	  void _M_insert_dispatch(iterator __pos,
+		      _InputIterator __first, _InputIterator __last,
+		      __false_type) {
+	    insert(__pos, __first, __last, __ITERATOR_CATEGORY(__first));
+	  }
+
+<div class="cut"></div>
+
+函数 insert 将 \_\_first 到 \_\_last 之间的内容插入到 deque 中指定位置 \_\_pos 之前。 \_\_first 和 \_\_last 的迭代器类型为 input\_iterator （即第四个函数形参为 input\_iterator\_tag) 。
+
+函数调用了 inserter 函数，该函数在 stl\_iterator 中定义 ，返回值为一个迭代器的适配器 inserter\_iterator，该迭代器中定义了一个 operator= 函数，用来在与适配器关联的容器中的指定位置插入一个新元素，插入操作的实现是通过在适配器中调用容器的 insert 函数。而 copy 中最终复制也是通过将 \_\_first 到 \_\_last 中的元素逐个复制到第三个参数指示的位置，并且每复制一个元素通过往后挪动一个位置，inserter\_iterator 在 operator= 中也会往后挪动一个位置，所以最后实现的方式相当于将 \_\_first 到 \_\_last 中的元素逐个插入到了 deque 中。
+
+	template <class _Tp, class _Alloc> template <class _InputIterator>
+	void deque<_Tp,_Alloc>::insert(iterator __pos,
+			   _InputIterator __first, _InputIterator __last,
+			   input_iterator_tag)
+	{
+	  copy(__first, __last, inserter(*this, __pos));
+	}
+
+<div class="cut"></div>
+
+insert 函数将 \_\_first 到 \_\_last 之间的内容插入到指定位置 \_\_pos 之前。其中第四个形参为 forward\_iterator\_tag。函数首先计算 first 和 last 之间的元素个数\_\_n 。函数内部分三种情况进行考虑。
+
+第一种如果插入位置在 deque 的最前面，则首先调用 \_M\_reserve\_elements\_at\_front 为 deque 在 \_M\_start 之前分配能容纳 \_\_n 个元素的空间，并更新 \M\_start 。然后调用 uninitialized\_copy 将新元素复制到先前分配的空间。
+
+第二种情况为插入的位置在最后面，首先调用 \_M\_reserve\_elements\_at\_back 为 deque 在 \_M\_finish 之后分配能够容纳 \_\_n 个元素的空间，然后将新元素插入到 \M\_finish.\_M\_cur 和 分配的 \_\_n - 1 个位置。并将最后一个位置作为结束标记，\_M\_finish 指向该位置。
+
+第三种情况是插入的位置在中间，则调用 \_M\_insert\_aux 来实现插入的功能。
+
+	template <class _Tp, class _Alloc> template <class _ForwardIterator>
+	void
+	deque<_Tp,_Alloc>::insert(iterator __pos,
+		      _ForwardIterator __first, _ForwardIterator __last,
+		      forward_iterator_tag) {
+	  size_type __n = 0;
+	  distance(__first, __last, __n);
+	  if (__pos._M_cur == _M_start._M_cur) {
+	    iterator __new_start = _M_reserve_elements_at_front(__n);
+	    __STL_TRY {
+	      uninitialized_copy(__first, __last, __new_start);
+	      _M_start = __new_start;
+	    }
+	    __STL_UNWIND(_M_destroy_nodes(__new_start._M_node, _M_start._M_node));
+	  }
+	  else if (__pos._M_cur == _M_finish._M_cur) {
+	    iterator __new_finish = _M_reserve_elements_at_back(__n);
+	    __STL_TRY {
+	      uninitialized_copy(__first, __last, _M_finish);
+	      _M_finish = __new_finish;
+	    }
+	    __STL_UNWIND(_M_destroy_nodes(_M_finish._M_node + 1, 
+			  __new_finish._M_node + 1));
+	  }
+	  else
+	    _M_insert_aux(__pos, __first, __last, __n);
+	}
+
+<div class="cut"></div>
+
+下面的 \_M\_insert\_aux 将 \_\_first 到 \_\_last 之间的内容插入到 deque 的指定位置 \_\_pos 之前。
+
+函数内部首先计算 deque 中 \_\_pos 之前的元素个数\_elemsbefore ，然后分两种情况进行考虑。
+
+第一种情况如果 \_\_pos 在 deque 的前半部分，则首先在 deque 的 \_M\_start 之前分配能容纳 \_\_n 个元素的空间 (这里 \_\_n 是 \_\_first 到 \_\_last 之间的元素个数) 。因为调用 \_M\_reserve\_elements\_at\_front 可能会使 \_\_pos 失效，因此重新更新 \_\_pos 。然后在根据 \_elemsbefore 是否大于或等于 \_\_n ，再分两种情况进行考虑，第一种是 elemsbefore 大于等于 \_\_n，则首先将 \_\_elemsbefore 的前 \_\_n 个元素 通过 uninitialized\_copy 往前移动 \_\_n 个位置，接着通过 copy 将 \_\_pos 之前剩余的元素 通过 copy 往前移动 \_\_n 个位置，最后在 \_\_pos 之前的 \_\_n 个位置上通过 fill 插入新元素。
+
+如果 \_\_elemsbefore 小于 \_\_n 则调用 uninitialized\_copy\_fill 先将 \_\_pos 之前的 \_\_elemsbefore 个元素往前移动 \_\_n 个位置，因为 \_\_elemsbefore 个元素无法填满新分配的 \_\_n 个位置，接着在前 \_\_n 个位置中还未被填满的位置上填充新元素，这两个操作可以通过 uninitialized\_copy\_fill 一个函数来实现。最后在原来插入新元素之前 \_\_pos 之前的 \_\_elemsbefore 个位置上也填充新元素，通过 fill 函数实现。
+
+另一种情况是 \_\_pos 在 deque 的后半部分，这种情况总体的思路是先在 deque 的尾部申请容纳 \_\_n 个元素的新空间，然后将 \_\_pos 之后的元素 (包括 \_\_pos 指示的位置) 整体往后移动 \_\_n 个位置，最后在 \_\_pos 之后 (包括 \_\_pos) 的 \_\_n 个位置上插入新元素，其实习的思路和第一种情况十分类似，这里不再重述。
+
+	template <class _Tp, class _Alloc> template <class _ForwardIterator>
+	void deque<_Tp,_Alloc>::_M_insert_aux(iterator __pos,
+					      _ForwardIterator __first,
+					      _ForwardIterator __last,
+					      size_type __n)
+	{
+	  const difference_type __elemsbefore = __pos - _M_start;
+	  size_type __length = size();
+	  if (__elemsbefore < __length / 2) {
+	    iterator __new_start = _M_reserve_elements_at_front(__n);
+	    iterator __old_start = _M_start;
+	    __pos = _M_start + __elemsbefore;
+	    __STL_TRY {
+	      if (__elemsbefore >= difference_type(__n)) {
+		iterator __start_n = _M_start + difference_type(__n); 
+		uninitialized_copy(_M_start, __start_n, __new_start);
+		_M_start = __new_start;
+		copy(__start_n, __pos, __old_start);
+		copy(__first, __last, __pos - difference_type(__n));
+	      }
+	      else {
+		_ForwardIterator __mid = __first;
+		advance(__mid, difference_type(__n) - __elemsbefore);
+		__uninitialized_copy_copy(_M_start, __pos, __first, __mid,
+					  __new_start);
+		_M_start = __new_start;
+		copy(__mid, __last, __old_start);
+	      }
+	    }
+	    __STL_UNWIND(_M_destroy_nodes(__new_start._M_node, _M_start._M_node));
+	  }
+	  else {
+	    iterator __new_finish = _M_reserve_elements_at_back(__n);
+	    iterator __old_finish = _M_finish;
+	    const difference_type __elemsafter = 
+	      difference_type(__length) - __elemsbefore;
+	    __pos = _M_finish - __elemsafter;
+	    __STL_TRY {
+	      if (__elemsafter > difference_type(__n)) {
+		iterator __finish_n = _M_finish - difference_type(__n);
+		uninitialized_copy(__finish_n, _M_finish, _M_finish);
+		_M_finish = __new_finish;
+		copy_backward(__pos, __finish_n, __old_finish);
+		copy(__first, __last, __pos);
+	      }
+	      else {
+		_ForwardIterator __mid = __first;
+		advance(__mid, __elemsafter);
+		__uninitialized_copy_copy(__mid, __last, __pos, _M_finish, _M_finish);
+		_M_finish = __new_finish;
+		copy(__first, __mid, __pos);
+	      }
+	    }
+	    __STL_UNWIND(_M_destroy_nodes(_M_finish._M_node + 1, 
+					  __new_finish._M_node + 1));
+	  }
+	}
+
+<div class="cut"></div>
+
+swap 函数用来交换两个两个 deque ，只需要交换每个 deque 中的四个成员变量即可。
+
+	  void swap(deque& __x) {
+	    __STD::swap(_M_start, __x._M_start);
+	    __STD::swap(_M_finish, __x._M_finish);
+	    __STD::swap(_M_map, __x._M_map);
+	    __STD::swap(_M_map_size, __x._M_map_size);
+	  }
+
+<div class="cut"></div>
+
+关系运算符函数 operator== 判断两个 deque 是否相等，首先判断两个 deque 的元素个数是否相同，然后逐个比价两个 deque 的元素是否相等，如果以上两个条件都能满足，则判断这两个 deque 相等。
+
+	template <class _Tp, class _Alloc>
+	inline bool operator==(const deque<_Tp, _Alloc>& __x,
+		       const deque<_Tp, _Alloc>& __y) {
+	  return __x.size() == __y.size() &&
+	     equal(__x.begin(), __x.end(), __y.begin());
+	}
+
+<div class="cut"></div>
+
+operator< 比较两个 deque 的大小。调用 lexicographical 函数比较两个 deque 的元素序列的字典序。lexicographical\_compare 中如果 \_\_x 和 \_\_y 的前 i 个元素相等，第 i + 1 个元素不等，则如果 \_\_x 的第 i + 1 个元素比 \_\_y 的第 i + 1 个元素小返回 true, 否则返回 false，如果不存在这样的 i，则如果 \_\_x 比 \_\_y 中元素个数少，则返回 true 。否则返回 false。
+
+	template <class _Tp, class _Alloc>
+	inline bool operator<(const deque<_Tp, _Alloc>& __x,
+		      const deque<_Tp, _Alloc>& __y) {
+	  return lexicographical_compare(__x.begin(), __x.end(), 
+			 __y.begin(), __y.end());
+	}
+
+<div class="cut"></div>
+
+[STL 的 deque 分析（一）](../22/deque1.html)</br>
+[STL 的 deque 分析（二）](../22/deque2.html)</br>
+[STL 的 deque 分析（三）](../22/deque3.html)</br>
+[STL 的 deque 分析（四）](../22/deque4.html)</br>
+[STL 的 deque 分析（五）](../22/deque5.html)</br>
+[STL 的 deque 分析（六）](../22/deque6.html)</br>

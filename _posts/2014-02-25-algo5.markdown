@@ -1,0 +1,341 @@
+---
+title: STL 的算法(algo) 分析（五）
+layout: post
+key: d298079d-9844-41b4-809c-71d14a9c8ad3
+tags:
+  -algo 
+  -STL
+---
+
+
+\_\_unguarded\_linear\_insert 函数用来将给定值 \_\_val 插入到以 \_\_last 为结束位置的有序序列中。函数将所有大于 \_\_val 的元素都整体往后移动一个位置，然后将 \_\_val 插入到挪出来的位置上。
+
+	template <class _RandomAccessIter, class _Tp>
+	void __unguarded_linear_insert(_RandomAccessIter __last, _Tp __val) {
+	  _RandomAccessIter __next = __last;
+	  --__next;
+	  while (__val < *__next) {
+	    *__last = *__next;
+	    __last = __next;
+	    --__next;
+	  }
+	  *__last = __val;
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_unguarded\_linear\_insert 将给定值 \_\_val 插入到以 \_\_last 为结束位置的有序序列中。函数通过自定义的比较函数来比较元素的大小，并将所有大于 \_\_val 的元素都整体往后移动一个位置，然后将 \_\_val 插入到挪出来的位置上。
+
+	template <class _RandomAccessIter, class _Tp, class _Compare>
+	void __unguarded_linear_insert(_RandomAccessIter __last, _Tp __val, 
+				       _Compare __comp) {
+	  _RandomAccessIter __next = __last;
+	  --__next;  
+	  while (__comp(__val, *__next)) {
+	    *__last = *__next;
+	    __last = __next;
+	    --__next;
+	  }
+	  *__last = __val;
+	}
+
+<div class="cut"></div> 
+
+
+函数 \_\_linear\_insert 将 \_\_last 所在位置的元素插入到从 \_\_first 到 \_\_last(不包括 \_\_last 所在的位置) 的有序序列中。函数首先判断 \_\_last 所在位置的元素是否比 \_\_first 所在位置的元素要小，如果是，则调用 copy\_backward 将 \_\_first 到 \_\_last 之间的所有元素整体往后移动一个位置，然后将原先 \_\_last 所在位置的元素插入到原先 \_\_first 所在的位置。否则调用 \_\_unguarded\_linear\_insert 函数将 \_\_last 所在位置的元素插入到有序序列中。
+
+	template <class _RandomAccessIter, class _Tp>
+	inline void __linear_insert(_RandomAccessIter __first, 
+				    _RandomAccessIter __last, _Tp*) {
+	  _Tp __val = *__last;
+	  if (__val < *__first) {
+	    copy_backward(__first, __last, __last + 1);
+	    *__first = __val;
+	  }
+	  else
+	    __unguarded_linear_insert(__last, __val);
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_linear\_insert 将 \_\_last 所在位置的元素插入到 \_\_first 到 \_\_last(不包括 \_\_last 所在位置的元素) 的有序序列中，并通过自定义的比较函数 \_\_comp 来比较元素的大小。如果 \_\_last 所在位置的元素比 \_\_first 所在位置的元素要小，则调用 copy\_backward 函数将 \_\_first 到 \_\_last 之间的所有元素都整体往后移动一个位置，并将原先 \_\_last 所在位置的元素插入到原先 \_\_first 所在的位置。否则调用 \_\_unguarded\_linear\_insert 函数实现想要实现的功能。 
+
+	template <class _RandomAccessIter, class _Tp, class _Compare>
+	inline void __linear_insert(_RandomAccessIter __first, 
+				    _RandomAccessIter __last, _Tp*, _Compare __comp) {
+	  _Tp __val = *__last;
+	  if (__comp(__val, *__first)) {
+	    copy_backward(__first, __last, __last + 1);
+	    *__first = __val;
+	  }
+	  else
+	    __unguarded_linear_insert(__last, __val, __comp);
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_insertion\_sort 实现插入排序，借助辅助程序 \_\_linear\_insert 函数来实现。
+
+	template <class _RandomAccessIter>
+	void __insertion_sort(_RandomAccessIter __first, _RandomAccessIter __last) {
+	  if (__first == __last) return; 
+	  for (_RandomAccessIter __i = __first + 1; __i != __last; ++__i)
+	    __linear_insert(__first, __i, __VALUE_TYPE(__first));
+	}
+	
+<div class="cut"></div> 
+
+函数 \_\_insertion\_sort 实现插入排序，并且通过自定义的比较函数来比较元素的大小，借助辅助成员 \_\_linear\_insert 来实现。
+
+	template <class _RandomAccessIter, class _Compare>
+	void __insertion_sort(_RandomAccessIter __first,
+			      _RandomAccessIter __last, _Compare __comp) {
+	  if (__first == __last) return;
+	  for (_RandomAccessIter __i = __first + 1; __i != __last; ++__i)
+	    __linear_insert(__first, __i, __VALUE_TYPE(__first), __comp);
+	}
+
+<div class="cut"></div> 
+
+\_\_unguarded\_linear\_insertion\_sort\_aux 为 \_\_first 到 \_\_last 之间的内容实现插入排序。
+
+	template <class _RandomAccessIter, class _Tp>
+	void __unguarded_insertion_sort_aux(_RandomAccessIter __first, 
+					    _RandomAccessIter __last, _Tp*) {
+	  for (_RandomAccessIter __i = __first; __i != __last; ++__i)
+	    __unguarded_linear_insert(__i, _Tp(*__i));
+	}
+
+<div class="cut"></div> 
+
+\_\_unguarded\_insertion\_sort 为 \_\_first 到 \_\_last 之间的内容实现插入排序。
+
+	template <class _RandomAccessIter>
+	inline void __unguarded_insertion_sort(_RandomAccessIter __first, 
+					_RandomAccessIter __last) {
+	  __unguarded_insertion_sort_aux(__first, __last, __VALUE_TYPE(__first));
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_final\_insertion\_sort 为 \_\_first 到 \_\_last 之间的内容实现插入排序。其中 \_\_stl\_threhold 是当前文件中定义的一个全局的整型常量。
+
+	template <class _RandomAccessIter>
+	void __final_insertion_sort(_RandomAccessIter __first, 
+				    _RandomAccessIter __last) {
+	  if (__last - __first > __stl_threshold) {
+	    __insertion_sort(__first, __first + __stl_threshold);
+	    __unguarded_insertion_sort(__first + __stl_threshold, __last);
+	  }
+	  else
+	    __insertion_sort(__first, __last);
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_lg 求给定值 \_\_n 以 2 为底的对数。求得的值是整型。
+
+	template <class _Size>
+	inline _Size __lg(_Size __n) {
+	  _Size __k;
+	  for (__k = 0; __n != 1; __n >>= 1) ++__k;
+	  return __k;
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_introsort\_loop 为 \_\_first 到 \_\_last 之间的内容进行排序，但实现的是一个初步排序，并没有完成最终的排序，只是将 \_\_first 到 \_\_last 之间的元素分成一个一个长度小于 \_\_stl\_threhold 的段。其中前面的段中的任何元素都小于或者等于后面的段中的任何元素。
+
+函数采用一种综合的排序方式。其中定义了一些限制方式，首先只有 \_\_first 到 \_\_last 之间的元素个数大于 \_\_stl\_threhold 时才会对其进行排序，其次函数中有一个形参用来限制递归的深度。当 \_\_depth\_limit 为 0 时，不允许再进行递归，调用 partial\_sort 对其进行排序，partial\_sort 在后面定义，它采用的是堆排序。
+
+如果 \_\_depth\_limit 的值大于 0 ，则首先调用 unguarded\_partition 用 \_\_first, \_\_last 和 \_\_first 到 \_\_last 的中间位置这三个位置所在的元素的中间元素作为 pivot 对 \_\_first 到 \_\_last 之间的内容进行分割，取得分割位置为 \_\_cut。利用尾递归方法对 \_\_cut 到 \_\_last 之间的内容进行递归排序。递归完毕后，将 \_\_last 更新为 \_\_cut 。利用循环再对 \_\_first 到 \_\_cut 之间的内容进行排序。
+
+	template <class _RandomAccessIter, class _Tp, class _Size>
+	void __introsort_loop(_RandomAccessIter __first,
+			      _RandomAccessIter __last, _Tp*,
+			      _Size __depth_limit)
+	{
+	  while (__last - __first > __stl_threshold) {
+	    if (__depth_limit == 0) {
+	      partial_sort(__first, __last, __last);
+	      return;
+	    }
+	    --__depth_limit;
+	    _RandomAccessIter __cut =
+	      __unguarded_partition(__first, __last,
+				    _Tp(__median(*__first,
+						 *(__first + (__last - __first)/2),
+						 *(__last - 1))));
+	    __introsort_loop(__cut, __last, (_Tp*) 0, __depth_limit);
+	    __last = __cut;
+	  }
+	}
+
+<div class="cut"></div> 
+
+函数 sort 对 \_\_first 到 \_\_last 之间的内容进行排序，函数首先调用 \_\_introsort\_loop 将 \_\_first 到 \_\_last 之间的内容分割成一个个长度小于 \_\_stl\_threhold 的段，使得前面的段中的元素都小于后面的段中的元素。然后调用 \_\_final\_insertion\_sort 采用插入排序的方式为 \_\_first 到 \_\_last 之间的元素进行排序。最后的插入排序的所需的时间渐进认为是线性的。
+
+	template <class _RandomAccessIter>
+	inline void sort(_RandomAccessIter __first, _RandomAccessIter __last) {
+	  __STL_REQUIRES(_RandomAccessIter, _Mutable_RandomAccessIterator);
+	  __STL_REQUIRES(typename iterator_traits<_RandomAccessIter>::value_type,
+			 _LessThanComparable);
+	  if (__first != __last) {
+	    __introsort_loop(__first, __last,
+			     __VALUE_TYPE(__first),
+			     __lg(__last - __first) * 2);
+	    __final_insertion_sort(__first, __last);
+	  }
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_inplace\_stable\_sort 对 \_\_first 到 \_\_last 之间的元素实现原地的稳定排序。如果 \_\_first 到 \_\_last 之间的元素个数小于 15 ，则直接对 \_\_first 到 \_\_last 之间的元素实施插入排序(插入排序是稳定的)。否则先递归的对 \_\_first 的前半部分进行 \_\_inplace\_stable\_sort 排序，然后对 \_\_first 到 \_\_last 的后半部分进行 \_\_inplace\_stable\_sort 排序，最后将这已排序的两部分调用 \_\_merge\_without\_buffer 进行合并。
+
+	template <class _RandomAccessIter>
+	void __inplace_stable_sort(_RandomAccessIter __first,
+				   _RandomAccessIter __last) {
+	  if (__last - __first < 15) {
+	    __insertion_sort(__first, __last);
+	    return;
+	  }
+	  _RandomAccessIter __middle = __first + (__last - __first) / 2;
+	  __inplace_stable_sort(__first, __middle);
+	  __inplace_stable_sort(__middle, __last);
+	  __merge_without_buffer(__first, __middle, __last,
+				 __middle - __first,
+				 __last - __middle);
+	}
+	
+<div class="cut"></div> 
+
+merge\_sort\_loop 用来对 \_\_first 到 \_\_last 之间的内容进行合并，对于 \_\_first 到 \_\_last 之间的内容，从 \_\_first 开始将其分成长度为 \_\_step\_size 的一段一段。除最后一段的长度小于或者等于 \_\_step\_size 之外，其他的段的长度都等于 \_\_step\_size，并且每一段都是已排序的。
+
+while 循环中将相邻两个已排序的段调用 merge 函数进行合并，将其变成长度为 2 \* \_\_step\_size 的已排序的段，并将合并结果放在 \_\_result 中, merge 的返回值是合并结果存放在 \_\_result 中的结束位置，\_\_result 获取到该返回值后，下次的合并结果就会存放到当前合并结果的后面。
+	
+while 循环结束之后，可能余下一段或者两段，再将余下的部分也调用 merge 函数进行合并，但合并之后得到的段的长度可能比 2 \* \_\_step\_size 要小。
+
+	template <class _RandomAccessIter1, class _RandomAccessIter2,
+		  class _Distance>
+	void __merge_sort_loop(_RandomAccessIter1 __first,
+			       _RandomAccessIter1 __last, 
+			       _RandomAccessIter2 __result, _Distance __step_size) {
+	  _Distance __two_step = 2 * __step_size;
+
+	  while (__last - __first >= __two_step) {
+	    __result = merge(__first, __first + __step_size,
+			     __first + __step_size, __first + __two_step,
+			     __result);
+	    __first += __two_step;
+	  }
+
+	  __step_size = min(_Distance(__last - __first), __step_size);
+	  merge(__first, __first + __step_size, __first + __step_size, __last,
+		__result);
+	}
+
+<div class="cut"></div> 
+
+\_\_chunk\_insertion\_sort 函数将 \_\_first 到 \_\_last 之间的内容分割为长度为 \_\_stl\_chunk\_size 的段(除最后一段的长度可能小于 \_\_stl\_chunk\_size 之外，其他的每段的长度都等于 \_\_stl\_chunk\_size)。然后对每段之内的内容进行插入排序。
+
+	template <class _RandomAccessIter, class _Distance>
+	void __chunk_insertion_sort(_RandomAccessIter __first, 
+				    _RandomAccessIter __last, _Distance __chunk_size)
+	{
+	  while (__last - __first >= __chunk_size) {
+	    __insertion_sort(__first, __first + __chunk_size);
+	    __first += __chunk_size;
+	  }
+	  __insertion_sort(__first, __last);
+	}
+
+<div class="cut"></div> 
+
+\_\_merge\_sort\_with\_buffer 函数对 \_\_first 到 \_\_last 之间的内容进行归并排序。函数先将 \_\_first 到 \_\_last 之间的元素分成长度为 \_\_stl\_chunk\_size 的段，并调用 \_\_chunk\_insertion\_sort 先对每段元素进行插入排序。在 while 循环中将相邻两段之内的元素进行合并，因为调用了辅助空间 \_\_buffer。while 循环中第一次调用 \_\_merge\_sort\_loop 得到的合并结果存储在 \_\_buffer 开始的空间。而第二次调用 \_\_merge\_sort\_loop 将 \_\_first 开始的地址空间作为辅助空间，得到的合并结果再次回到 \_\_first 开始的地址空间。
+
+	template <class _RandomAccessIter, class _Pointer, class _Distance>
+	void __merge_sort_with_buffer(_RandomAccessIter __first, 
+				      _RandomAccessIter __last,
+				      _Pointer __buffer, _Distance*) {
+	  _Distance __len = __last - __first;
+	  _Pointer __buffer_last = __buffer + __len;
+
+	  _Distance __step_size = __stl_chunk_size;
+	  __chunk_insertion_sort(__first, __last, __step_size);
+
+	  while (__step_size < __len) {
+	    __merge_sort_loop(__first, __last, __buffer, __step_size);
+	    __step_size *= 2;
+	    __merge_sort_loop(__buffer, __buffer_last, __first, __step_size);
+	    __step_size *= 2;
+	  }
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_stable\_sort\_adaptive 对 \_\_first 到 \_\_last 之间的内容进行稳定的排序。在排序过程中借助从 \_\_buffer 开始长度为 \_\_buffer\_size 的辅助空间。其中辅助空间 \_\_buffer 可能可供使用的长度比 \_\_first 到 \_\_last 之间的长度要短，函数会根据 \_\_buffer\_size 的长度大小自适应的选择合适的方式进行排序。
+
+令 \_\_len 为 \_\_first 到 \_\_last 的长度的一半。同时令 \_\_middle = \_\_first + \_\_len 。如果 \_\_len 大于 \_\_buffer\_size ，则递归调用 \_\_stable\_sort\_adaptive 用自适应的排序方法来分别对 \_\_first 到 \_\_middle 和 \_\_middle 到 \_\_last 之间的内容进行排序。
+
+否则如果 \_\_len 小于或者等于 \_\_buffer\_size ，因为辅助空间 \_\_buffer 的长度是足够的，则调用 \_\_merge\_sort\_with\_buffer 分别对 \_\_first 到 \_\_middle 和 \_\_middle 到 \_\_last 之间的内容进行排序。最后使用 \_\_merge\_adaptive 对 \_\_first 到 \_\_middle 和 \_\_middle 到 \_\_last 这两段已排序的内容进行合并。
+
+	template <class _RandomAccessIter, class _Pointer, class _Distance>
+	void __stable_sort_adaptive(_RandomAccessIter __first, 
+				    _RandomAccessIter __last, _Pointer __buffer,
+				    _Distance __buffer_size) {
+	  _Distance __len = (__last - __first + 1) / 2;
+	  _RandomAccessIter __middle = __first + __len;
+	  if (__len > __buffer_size) {
+	    __stable_sort_adaptive(__first, __middle, __buffer, __buffer_size);
+	    __stable_sort_adaptive(__middle, __last, __buffer, __buffer_size);
+	  }
+	  else {
+	    __merge_sort_with_buffer(__first, __middle, __buffer, (_Distance*)0);
+	    __merge_sort_with_buffer(__middle, __last, __buffer, (_Distance*)0);
+	  }
+	  __merge_adaptive(__first, __middle, __last, _Distance(__middle - __first), 
+			   _Distance(__last - __middle), __buffer, __buffer_size);
+	}
+
+
+<div class="cut"></div> 
+
+函数 \_\_stable\_sort\_aux 对 \_\_first 到 \_\_last 之间的内容进行稳定的排序。函数首先申请长度和 \_\_first 到 \_\_last 相当的临时空间，如果临时空间申请失败，则调用 \_\_inplace\_stable\_sort 对 \_\_first 到 \_\_last 之间的内容进行原地的稳定排序。否则调用 \_\_stable\_sort\_adpative 对 \_\_first 到 \_\_last 之间的内容进行稳定排序。
+
+	template <class _RandomAccessIter, class _Tp, class _Distance>
+	inline void __stable_sort_aux(_RandomAccessIter __first,
+				      _RandomAccessIter __last, _Tp*, _Distance*) {
+	  _Temporary_buffer<_RandomAccessIter, _Tp> buf(__first, __last);
+	  if (buf.begin() == 0)
+	    __inplace_stable_sort(__first, __last);
+	  else 
+	    __stable_sort_adaptive(__first, __last, buf.begin(),
+				   _Distance(buf.size()));
+	}
+
+<div class="cut"></div> 
+
+函数 stable\_sort 调用 \_\_stable\_sort\_aux 对 \_\_first 到 \_\_last 之间的内容进行稳定的排序。
+
+	template <class _RandomAccessIter>
+	inline void stable_sort(_RandomAccessIter __first,
+				_RandomAccessIter __last) {
+	  __STL_REQUIRES(_RandomAccessIter, _Mutable_RandomAccessIterator);
+	  __STL_REQUIRES(typename iterator_traits<_RandomAccessIter>::value_type,
+			 _LessThanComparable);
+	  __stable_sort_aux(__first, __last,
+			    __VALUE_TYPE(__first),
+			    __DISTANCE_TYPE(__first));
+	}
+
+
+<div class="cut"></div>
+
+[STL 的 算法 (algo) 分析（一）](../25/algo1.html)</br>
+[STL 的 算法 (algo) 分析（二）](../25/algo2.html)</br>
+[STL 的 算法 (algo) 分析（三）](../25/algo3.html)</br>
+[STL 的 算法 (algo) 分析（四）](../25/algo4.html)</br>
+[STL 的 算法 (algo) 分析（五）](../25/algo5.html)</br>
+[STL 的 算法 (algo) 分析（六）](../25/algo6.html)</br>
+[STL 的 算法 (algo) 分析（七）](../25/algo7.html)</br>
+[STL 的 算法 (algo) 分析（八）](../25/algo8.html)</br>

@@ -1,0 +1,283 @@
+---
+title: STL 的 tree 分析（四）
+layout: post
+key: 5cbc9859-523b-41c3-8bb3-98507e60b6bb
+tags:
+  -tree 
+  -STL
+---
+
+函数 key\_comp 返回成员变量 \_M\_key\_compare，函数 begin 返回红黑树的最左节点，函数 end() 返回红黑树的结束标记 \_M\_header (当迭代器指向最右节点时，再往后移动到到结束标记。)
+
+	  _Compare key_comp() const { return _M_key_compare; }
+	  iterator begin() { return _M_leftmost(); }
+	  iterator end() { return _M_header; }
+
+<div class="cut"></div>
+	  
+函数 empty 检测红黑树是否为空树，函数 size 返回红黑树的节点个数。
+
+	  bool empty() const { return _M_node_count == 0; }
+	  size_type size() const { return _M_node_count; }
+
+<div class="cut"></div>
+	  
+函数 swap 用来将当前红黑树和给定红黑树进行交换，直接交换内部的三个成员变量 \_M\_header, \_M\_node\_count 和 \_M\_key\_compare 即可。
+
+	  void swap(_Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>& __t) {
+	    __STD::swap(_M_header, __t._M_header);
+	    __STD::swap(_M_node_count, __t._M_node_count);
+	    __STD::swap(_M_key_compare, __t._M_key_compare);
+	  }
+
+<div class="cut"></div>
+	  
+函数 operator= 也是将给定的红黑树的内容复制到当前的红黑树中，先将当前红黑树中的节点清空，如果给定的红黑树不为空树，则调用 \_M\_copy 将该红黑树的内容复制到当前红黑树。并更新 \_M\_header, \_M\_key\_compare, \_M\_node\_count 的内容。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	_Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>& 
+	_Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>
+	  ::operator=(const _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>& __x)
+	{
+	  if (this != &__x) {
+					// Note that _Key may be a constant type.
+	    clear();
+	    _M_node_count = 0;
+	    _M_key_compare = __x._M_key_compare;        
+	    if (__x._M_root() == 0) {
+	      _M_root() = 0;
+	      _M_leftmost() = _M_header;
+	      _M_rightmost() = _M_header;
+	    }
+	    else {
+	      _M_root() = _M_copy(__x._M_root(), _M_header);
+	      _M_leftmost() = _S_minimum(_M_root());
+	      _M_rightmost() = _S_maximum(_M_root());
+	      _M_node_count = __x._M_node_count;
+	    }
+	  }
+	  return *this;
+	}
+
+<div class="cut"></div>
+	  
+函数 \_M\_insert 先用给定的节点值 \_\_v 构造一个新节点 \_\_z，然后将构造的新节点作为 \_\_y 的子节点插入到红黑树中。\_\_x 是一个单纯的标记形参，当它不为空时，直接将用 \_\_v 构造的新节点 \_\_z 作为 \_\_y 的左孩子插入。
+
+首先判断 \_\_y 是否为 \_M\_header，如果是，则说明红黑树为空树，再看 \_\_x 是否为空，最后看 \_\_v 中的关键值是否比 \_\_y 中的关键值要小。如果这三个条件任何一个满足，则将用 \_\_v 构造的新节点作为 \_\_y 的左孩子插入。同时如果 \_\_y 为 \_M\_header 。则新插入的节点即为最左节点，又为根节点，还为最右节点。如果 \_\_y 不为 \_M\_header，但是为最左节点，则新插入的节点为新的最左节点。
+
+如果if 语句的三个判断条件都不成立，则将新节点作为 \_\_y 的右孩子插入，如果 \_\_y 为最右节点，则新插入的节点为新的最右节点。最后令 \_\_y 为 \_\_z 的父节点，且令 \_\_z 的孩子节点都为空节点。然后调用 \_Rb\_tree\_rebalance 来调整红黑树，使得其性质得以保持。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	typename _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::iterator
+	_Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>
+	  ::_M_insert(_Base_ptr __x_, _Base_ptr __y_, const _Value& __v)
+	{
+	  _Link_type __x = (_Link_type) __x_;
+	  _Link_type __y = (_Link_type) __y_;
+	  _Link_type __z;
+
+	  if (__y == _M_header || __x != 0 || 
+	      _M_key_compare(_KeyOfValue()(__v), _S_key(__y))) {
+	    __z = _M_create_node(__v);
+	    _S_left(__y) = __z;               // also makes _M_leftmost() = __z 
+					      //    when __y == _M_header
+	    if (__y == _M_header) {
+	      _M_root() = __z;
+	      _M_rightmost() = __z;
+	    }
+	    else if (__y == _M_leftmost())
+	      _M_leftmost() = __z;   // maintain _M_leftmost() pointing to min node
+	  }
+	  else {
+	    __z = _M_create_node(__v);
+	    _S_right(__y) = __z;
+	    if (__y == _M_rightmost())
+	      _M_rightmost() = __z;  // maintain _M_rightmost() pointing to max node
+	  }
+	  _S_parent(__z) = __y;
+	  _S_left(__z) = 0;
+	  _S_right(__z) = 0;
+	  _Rb_tree_rebalance(__z, _M_header->_M_parent);
+	  ++_M_node_count;
+	  return iterator(__z);
+	}
+
+<div class="cut"></div>
+	  
+函数 insert\_equal 在红黑树中插入一个节点值为 \_\_v 的新节点，并且允许插入的新节点和已有的节点的关键字值相同。while 循环中找到一个找到一个合适的节点 \_\_y 。然后将新节点作为 \_\_y 的孩子节点插入到红黑树中。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	typename _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::iterator
+	_Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>
+	  ::insert_equal(const _Value& __v)
+	{
+	  _Link_type __y = _M_header;
+	  _Link_type __x = _M_root();
+	  while (__x != 0) {
+	    __y = __x;
+	    __x = _M_key_compare(_KeyOfValue()(__v), _S_key(__x)) ? 
+		    _S_left(__x) : _S_right(__x);
+	  }
+	  return _M_insert(__x, __y, __v);
+	}
+
+<div class="cut"></div>
+	  
+ 函数 insert\_unique 用来在红黑树中插入节点值为 \_\_v 的新节点。但要求新插入的节点的关键字值在已有的红黑树节点中不存在，否则插入失败。
+ 
+ 函数首先找到一个合适的节点 \_\_y ，使得新节点恰好能作为 \_\_y 的子节点插入到红黑树中，判断如果需要将新节点作为左孩子插入(即新节点的关键值比 \_\_y 的关键值要小) 则查看 \_\_y 是否为最左节点，如果是，则新节点的关键值肯定不会和其他节点相同，而且它会成为新的最左节点。如果 \_\_y 不为最左节点，则获取 \_\_y 的前驱节点，并判断新节点的关键值是否比前驱节点的关键值大，如果不是，说明新节点的关键值和前驱节点的相同，插入失败。
+
+ 如果新节点作为 \_\_y 的右孩子插入到红黑树中，则说明新节点的关键值大于等于 \_\_y 的关键值，然后在比较 \_\_y 的关键值是否比新节点的要小，如果不是说明 \_\_y 的关键值和新节点的相同，插入失败。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	pair<typename _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::iterator, 
+	     bool>
+	_Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>
+	  ::insert_unique(const _Value& __v)
+	{
+	  _Link_type __y = _M_header;
+	  _Link_type __x = _M_root();
+	  bool __comp = true;
+	  while (__x != 0) {
+	    __y = __x;
+	    __comp = _M_key_compare(_KeyOfValue()(__v), _S_key(__x));
+	    __x = __comp ? _S_left(__x) : _S_right(__x);
+	  }
+	  iterator __j = iterator(__y);   
+	  if (__comp)
+	    if (__j == begin())     
+	      return pair<iterator,bool>(_M_insert(__x, __y, __v), true);
+	    else
+	      --__j;
+	  if (_M_key_compare(_S_key(__j._M_node), _KeyOfValue()(__v)))
+	    return pair<iterator,bool>(_M_insert(__x, __y, __v), true);
+	  return pair<iterator,bool>(__j, false);
+	}
+
+<div class="cut"></div>
+	  
+函数 insert\_equal 在给定的位置 \_\_position 之前插入一个节点值为 \_\_v 的新节点。新节点优先插在 \_\_positon 所在的位置之前，但如果插在 \_\_position 违反了查找二叉树的性质，则选择合适的位置进行插入。
+
+首先判断 \_\_postion 所处的位置是否为最左节点，如果是，判断能否将新节点的关键值是否比最左节点还小，如果是则将新节点作为 \_\_position 的左孩子插入，否则调用 insert\_equal(\_Value&) 插入。
+
+其次判断 \_\_position 所处的位置是否为 end()。如果是，则判断新节点的关键值是否比最右节点还大，如果是，则将新节点作为最右节点的右孩子插入，否则调用 insert\_equal(\_Value&) 将新节点插入到合适的位置。
+
+如果 \_\_position 既不为 begin() 也不为 end()。则找到 \_\_position 的前驱 \_\_before。如果新节点的关键值大于等于 \_\_before 的关键值，而且小于等于 \_\_positon 的关键值。则可以将新节点作为 \_\_before 的右孩子或者 \_\_positon 的左孩子插入。如果 \_\_before 的右孩子为空，则将新节点作为 \_\_before 的右孩子插入。
+
+如果 \_\_before 的右孩子不为空，则 \_\_position 的左孩子肯定为空，否则 \_\_before 应该在 \_\_position 的左子树上，但如果 \_\_before 在它的左子树上，则它的右孩子一定为空，否则它的右孩子应该代替它成为 \_\_position 的后继节点。但现在 \_\_before 的右孩子不为空，说明它不在 \_\_position 的左子树，也即 \_\_position 左子树为空，将新节点作为 \_\_position 左子节点插入。
+
+如果新节点的关键值不在 \_\_before 和 \_\_position 之间，则调用 insert\_equal(\_Value&) 将新节点插入到合适的位置。
+
+	template <class _Key, class _Val, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	typename _Rb_tree<_Key,_Val,_KeyOfValue,_Compare,_Alloc>::iterator 
+	_Rb_tree<_Key,_Val,_KeyOfValue,_Compare,_Alloc>
+	  ::insert_equal(iterator __position, const _Val& __v)
+	{
+	  if (__position._M_node == _M_header->_M_left) { // begin()
+	    if (size() > 0 && 
+		!_M_key_compare(_S_key(__position._M_node), _KeyOfValue()(__v)))
+	      return _M_insert(__position._M_node, __position._M_node, __v);
+	    // first argument just needs to be non-null 
+	    else
+	      return insert_equal(__v);
+	  } else if (__position._M_node == _M_header) {// end()
+	    if (!_M_key_compare(_KeyOfValue()(__v), _S_key(_M_rightmost())))
+	      return _M_insert(0, _M_rightmost(), __v);
+	    else
+	      return insert_equal(__v);
+	  } else {
+	    iterator __before = __position;
+	    --__before;
+	    if (!_M_key_compare(_KeyOfValue()(__v), _S_key(__before._M_node))
+		&& !_M_key_compare(_S_key(__position._M_node), _KeyOfValue()(__v))) {
+	      if (_S_right(__before._M_node) == 0)
+		return _M_insert(0, __before._M_node, __v); 
+	      else
+		return _M_insert(__position._M_node, __position._M_node, __v);
+	    // first argument just needs to be non-null 
+	    } else
+	      return insert_equal(__v);
+	  }
+	}
+
+<div class="cut"></div>
+	  
+insert\_unique 将节点值为 \_\_v 的新节点插入到给定的位置 \_\_position 之前 ，但要求新节点的关键值不能和已有的节点的关键值相同，新节点优先插入到 \_\_position 之前，使其成为 \_\_position 的新的前驱，但如果新节点插入到 \_\_position 之前违反二叉查找树的性质，则通过 insert\_unique(\_Value&) 将其插入到合适的位置。
+
+函数首先判断 \_\_position 的位置是否为 begin() ，如果是，再判断新节点的关键值是否比最左节点更小，如果是则将新节点作为最左节点的左孩子插入到红黑树中，否则调用 insert\_unique(\_Value&) 将节点插入到合适的位置。
+
+其次检测 \_\_position 的位置是否为 end()，如果是，则判断新节点的关键值是否比最右节点更大，如果是则将新节点作为最右节点的右孩子插入到红黑树中。
+
+如果 \_\_position 的位置既不是 begin() 也不是 end() ，则获取到 \_\_position 的前驱 \_\_before ，判断新节点的关键值是否比 \_\_before 要大，而且比 \_\_position 要小，如果是则要么将新节点作为 \_\_before 的右孩子插入，要么将新节点作为 \_\_position 的左孩子插入。
+
+如果新节点的关键值不在 \_\_before 和 \_\_position 的关键值之间，则调用 insert\_unique(\_Value&) 来将新节点插入到合适位置。
+
+	template <class _Key, class _Val, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	typename _Rb_tree<_Key, _Val, _KeyOfValue, _Compare, _Alloc>::iterator 
+	_Rb_tree<_Key, _Val, _KeyOfValue, _Compare, _Alloc>
+	  ::insert_unique(iterator __position, const _Val& __v)
+	{
+	  if (__position._M_node == _M_header->_M_left) { // begin()
+	    if (size() > 0 && 
+		_M_key_compare(_KeyOfValue()(__v), _S_key(__position._M_node)))
+	      return _M_insert(__position._M_node, __position._M_node, __v);
+	    // first argument just needs to be non-null 
+	    else
+	      return insert_unique(__v).first;
+	  } else if (__position._M_node == _M_header) { // end()
+	    if (_M_key_compare(_S_key(_M_rightmost()), _KeyOfValue()(__v)))
+	      return _M_insert(0, _M_rightmost(), __v);
+	    else
+	      return insert_unique(__v).first;
+	  } else {
+	    iterator __before = __position;
+	    --__before;
+	    if (_M_key_compare(_S_key(__before._M_node), _KeyOfValue()(__v)) 
+		&& _M_key_compare(_KeyOfValue()(__v), _S_key(__position._M_node))) {
+	      if (_S_right(__before._M_node) == 0)
+		return _M_insert(0, __before._M_node, __v); 
+	      else
+		return _M_insert(__position._M_node, __position._M_node, __v);
+	    // first argument just needs to be non-null 
+	    } else
+	      return insert_unique(__v).first;
+	  }
+
+<div class="cut"></div>
+	  
+insert\_equal 用来将两个迭代器包含的区域的内容插入到红黑树中。并且允许不同节点的关键值相同。
+
+	template <class _Key, class _Val, class _KoV, class _Cmp, class _Alloc>
+	  template<class _II>
+	void _Rb_tree<_Key,_Val,_KoV,_Cmp,_Alloc>
+	  ::insert_equal(_II __first, _II __last)
+	{
+	  for ( ; __first != __last; ++__first)
+	    insert_equal(*__first);
+	}
+
+<div class="cut"></div>
+	  
+insert\_unique 用来将两个迭代器之间包含的内容插入红黑树中，但不允许不同的节点有相同的关键值。
+
+	template <class _Key, class _Val, class _KoV, class _Cmp, class _Alloc> 
+	  template<class _II>
+	void _Rb_tree<_Key,_Val,_KoV,_Cmp,_Alloc>
+	  ::insert_unique(_II __first, _II __last) {
+	  for ( ; __first != __last; ++__first)
+	    insert_unique(*__first);
+	}
+
+<div class="cut"></div>
+
+[STL 的 tree 分析（一）](../20/rb_tree1.html)</br>
+[STL 的 tree 分析（二）](../20/rb_tree2.html)</br>
+[STL 的 tree 分析（三）](../20/rb_tree3.html)</br>
+[STL 的 tree 分析（四）](../20/rb_tree4.html)</br>
+[STL 的 tree 分析（五）](../20/rb_tree5.html)</br>

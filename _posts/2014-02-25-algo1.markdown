@@ -1,0 +1,320 @@
+---
+title: STL 的算法(algo) 分析（一）
+layout: post
+key: 2a9e6b89-e1eb-4ca7-9c93-bc0825004807
+tags:
+  -algo 
+  -STL
+---
+\_\_median 函数返回给定三个元素中大小居中间的那个数。
+
+	template <class _Tp>
+	inline const _Tp& __median(const _Tp& __a, const _Tp& __b, const _Tp& __c) {
+	  __STL_REQUIRES(_Tp, _LessThanComparable);
+	  if (__a < __b)
+	    if (__b < __c)
+	      return __b;
+	    else if (__a < __c)
+	      return __c;
+	    else
+	      return __a;
+	  else if (__a < __c)
+	    return __a;
+	  else if (__b < __c)
+	    return __c;
+	  else
+	    return __b;
+	}
+
+<div class="cut"></div>
+
+函数 \_\_median 返回给定的三个元素中大小居中间的那个数。并且函数提供了一个形参用来自定义比较函数。
+
+	template <class _Tp, class _Compare>
+	inline const _Tp&
+	__median(const _Tp& __a, const _Tp& __b, const _Tp& __c, _Compare __comp) {
+	  __STL_BINARY_FUNCTION_CHECK(_Compare, bool, _Tp, _Tp);
+	  if (__comp(__a, __b))
+	    if (__comp(__b, __c))
+	      return __b;
+	    else if (__comp(__a, __c))
+	      return __c;
+	    else
+	      return __a;
+	  else if (__comp(__a, __c))
+	    return __a;
+	  else if (__comp(__b, __c))
+	    return __c;
+	  else
+	    return __b;
+	}
+
+<div class="cut"></div>
+
+函数 for\_each 用来逐个对 \_\_first 到 \_\_last 之间的元素执行 \_\_f 操作。\_\_f 是一个一元函数，或者是一个重载了带有一个形参的 operator() 函数的函数对象。
+
+	template <class _InputIter, class _Function>
+	_Function for_each(_InputIter __first, _InputIter __last, _Function __f) {
+	  __STL_REQUIRES(_InputIter, _InputIterator);
+	  for ( ; __first != __last; ++__first)
+	    __f(*__first);
+	  return __f;
+	}
+
+<div class="cut"></div>
+
+函数 find 用来查找从 \_\_first 到 \_\_last 之间第一个值为 \_\_val 的元素，如果没找到，则返回 \_\_last 。
+
+	template <class _InputIter, class _Tp>
+	inline _InputIter find(_InputIter __first, _InputIter __last,
+			       const _Tp& __val,
+			       input_iterator_tag)
+	{
+	  while (__first != __last && !(*__first == __val))
+	    ++__first;
+	  return __first;
+	}
+
+<div class="cut"></div>
+
+函数 find\_if 用来查找从 \_\_first 到 \_\_last 之间第一个满足判断条件 \_\_pred 的元素，\_\_pred 可以看成是一个一元判断函数，如果没有满足判断条件的元素，则返回 \_\_last 。
+
+	template <class _InputIter, class _Predicate>
+	inline _InputIter find_if(_InputIter __first, _InputIter __last,
+				  _Predicate __pred,
+				  input_iterator_tag)
+	{
+	  while (__first != __last && !__pred(*__first))
+	    ++__first;
+	  return __first;
+	}
+
+<div class="cut"></div>
+
+函数 find 也是用来查找从 \_\_first 到 \_\_last 第一个值为 val 的元素。如果 \_\_first 和 \_\_last 为 random\_access\_iterator 。则先计算迭代器之间的差值，然后根据得到的差值，查找从 \_\_first 开始第一个值为指定值 \_\_val 的元素，至于为何不直接根据 \_\_first 和 \_\_last 的差值，用一个 for 循环遍历从 \_\_first 到 \_\_last 之间的内容，而是采用如下的方式，个人能想到的就是减少了 trip\_count 的比较次数。
+
+	template <class _RandomAccessIter, class _Tp>
+	_RandomAccessIter find(_RandomAccessIter __first, _RandomAccessIter __last,
+			       const _Tp& __val,
+			       random_access_iterator_tag)
+	{
+	  typename iterator_traits<_RandomAccessIter>::difference_type __trip_count
+	    = (__last - __first) >> 2;
+
+	  for ( ; __trip_count > 0 ; --__trip_count) {
+	    if (*__first == __val) return __first;
+	    ++__first;
+
+	    if (*__first == __val) return __first;
+	    ++__first;
+
+	    if (*__first == __val) return __first;
+	    ++__first;
+
+	    if (*__first == __val) return __first;
+	    ++__first;
+	  }
+
+	  switch(__last - __first) {
+	  case 3:
+	    if (*__first == __val) return __first;
+	    ++__first;
+	  case 2:
+	    if (*__first == __val) return __first;
+	    ++__first;
+	  case 1:
+	    if (*__first == __val) return __first;
+	    ++__first;
+	  case 0:
+	  default:
+	    return __last;
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 find 查找从 \_\_first 开始到 \_\_last 之间，第一个满足判断条件 \_\_pred 的元素。
+
+	template <class _RandomAccessIter, class _Predicate>
+	_RandomAccessIter find_if(_RandomAccessIter __first, _RandomAccessIter __last,
+				  _Predicate __pred,
+				  random_access_iterator_tag)
+	{
+	  typename iterator_traits<_RandomAccessIter>::difference_type __trip_count
+	    = (__last - __first) >> 2;
+
+	  for ( ; __trip_count > 0 ; --__trip_count) {
+	    if (__pred(*__first)) return __first;
+	    ++__first;
+
+	    if (__pred(*__first)) return __first;
+	    ++__first;
+
+	    if (__pred(*__first)) return __first;
+	    ++__first;
+
+	    if (__pred(*__first)) return __first;
+	    ++__first;
+	  }
+
+	  switch(__last - __first) {
+	  case 3:
+	    if (__pred(*__first)) return __first;
+	    ++__first;
+	  case 2:
+	    if (__pred(*__first)) return __first;
+	    ++__first;
+	  case 1:
+	    if (__pred(*__first)) return __first;
+	    ++__first;
+	  case 0:
+	  default:
+	    return __last;
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 find 根据迭代器的类型选择之前定义的不同 find 函数来实现查找从 \_\_first 开始到 \_\_last 结束的区域中的第一个值为 \_\_val 的元素。函数中有两个类型检测语句，其中第一个要求迭代器为 input\_iterator。第二个语句要求迭代器中的键值类型能够和 \_Tp 类型应用 operator== 进行比较。
+
+	template <class _InputIter, class _Tp>
+	inline _InputIter find(_InputIter __first, _InputIter __last,
+			       const _Tp& __val)
+	{
+	  __STL_REQUIRES(_InputIter, _InputIterator);
+	  __STL_REQUIRES_BINARY_OP(_OP_EQUAL, bool, 
+		    typename iterator_traits<_InputIter>::value_type, _Tp);
+	  return find(__first, __last, __val, __ITERATOR_CATEGORY(__first));
+	}
+
+<div class="cut"></div>
+
+函数 find 根据迭代器类型选择之前定义的不同 find 函数来实现查找从 \_\_first 开始到 \_\_last 结束的区域中第一个满足判断条件 \_\_pred 的元素。函数中的第二个类型检测语句要求迭代器中的键值类型能够应用判断条件 \_\_pred 判断该元素是否满足条件。
+
+	template <class _InputIter, class _Predicate>
+	inline _InputIter find_if(_InputIter __first, _InputIter __last,
+				  _Predicate __pred) {
+	  __STL_REQUIRES(_InputIter, _InputIterator);
+	  __STL_UNARY_FUNCTION_CHECK(_Predicate, bool,
+		  typename iterator_traits<_InputIter>::value_type);
+	  return find_if(__first, __last, __pred, __ITERATOR_CATEGORY(__first));
+	}
+
+<div class="cut"></div>
+
+adjacent\_find 查找 \_\_first 到 \_\_last 之间第一次出现相邻两个元素相等的位置。如果没有则返回 \_\_last 。否则返回出现的位置。
+
+	template <class _ForwardIter>
+	_ForwardIter adjacent_find(_ForwardIter __first, _ForwardIter __last) {
+	  __STL_REQUIRES(_ForwardIter, _ForwardIterator);
+	  __STL_REQUIRES(typename iterator_traits<_ForwardIter>::value_type,
+			 _EqualityComparable);
+	  if (__first == __last)
+	    return __last;
+	  _ForwardIter __next = __first;
+	  while(++__next != __last) {
+	    if (*__first == *__next)
+	      return __first;
+	    __first = __next;
+	  }
+	  return __last;
+	}
+
+<div class="cut"></div>
+
+函数 adjacent\_find 也是用来查找 \_\_first 到 \_\_last 第一次出现相邻两个元素相等的位置。如果存在返回第一次出现的位置，否则返回 \_\_last 。
+
+	template <class _ForwardIter, class _BinaryPredicate>
+	_ForwardIter adjacent_find(_ForwardIter __first, _ForwardIter __last,
+				   _BinaryPredicate __binary_pred) {
+	  __STL_REQUIRES(_ForwardIter, _ForwardIterator);
+	  __STL_BINARY_FUNCTION_CHECK(_BinaryPredicate, bool,
+		  typename iterator_traits<_ForwardIter>::value_type,
+		  typename iterator_traits<_ForwardIter>::value_type);
+	  if (__first == __last)
+	    return __last;
+	  _ForwardIter __next = __first;
+	  while(++__next != __last) {
+	    if (__binary_pred(*__first, *__next))
+	      return __first;
+	    __first = __next;
+	  }
+	  return __last;
+	}
+
+<div class="cut"></div>
+
+count 函数用来计算从 \_\_first 开始到 \_\_last 结束的区域中值为给定值 \_\_value 的元素个数。并且将计算结果存储在引用形参 \_\_n 中。
+
+	template <class _InputIter, class _Tp, class _Size>
+	void count(_InputIter __first, _InputIter __last, const _Tp& __value,
+		   _Size& __n) {
+	  __STL_REQUIRES(_InputIter, _InputIterator);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter>::value_type,
+			 _EqualityComparable);
+	  __STL_REQUIRES(_Tp, _EqualityComparable);
+	  for ( ; __first != __last; ++__first)
+	    if (*__first == __value)
+	      ++__n;
+	}
+
+<div class="cut"></div>
+
+函数 count\_if 计算从 \_\_first 开始到 \_\_last 结束的区域中满足给定条件 \_\_pred 的元素个数。并将计算结果存储在引用形参 \_\_n 中。
+
+	template <class _InputIter, class _Predicate, class _Size>
+	void count_if(_InputIter __first, _InputIter __last, _Predicate __pred,
+		      _Size& __n) {
+	  __STL_REQUIRES(_InputIter, _InputIterator);
+	  __STL_UNARY_FUNCTION_CHECK(_Predicate, bool, 
+			  typename iterator_traits<_InputIter>::value_type);
+	  for ( ; __first != __last; ++__first)
+	    if (__pred(*__first))
+	      ++__n;
+	}
+
+<div class="cut"></div>
+
+函数 count 计算从 \_\_first 开始到 \_\_last 结束的区域中值为给定值 \_\_value 的元素个数，并返回计算结果。
+
+	template <class _InputIter, class _Tp>
+	typename iterator_traits<_InputIter>::difference_type
+	count(_InputIter __first, _InputIter __last, const _Tp& __value) {
+	  __STL_REQUIRES(_InputIter, _InputIterator);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter>::value_type,
+			 _EqualityComparable);
+	  __STL_REQUIRES(_Tp, _EqualityComparable);
+	  typename iterator_traits<_InputIter>::difference_type __n = 0;
+	  for ( ; __first != __last; ++__first)
+	    if (*__first == __value)
+	      ++__n;
+	  return __n;
+	}
+
+<div class="cut"></div>
+
+函数 count\_if 计算从 \_\_first 开始到 \_\_last 结束的区域中满足给定判断条件的元素个数，并返回计算结果。
+
+	template <class _InputIter, class _Predicate>
+	typename iterator_traits<_InputIter>::difference_type
+	count_if(_InputIter __first, _InputIter __last, _Predicate __pred) {
+	  __STL_REQUIRES(_InputIter, _InputIterator);
+	  __STL_UNARY_FUNCTION_CHECK(_Predicate, bool, 
+			  typename iterator_traits<_InputIter>::value_type);
+	  typename iterator_traits<_InputIter>::difference_type __n = 0;
+	  for ( ; __first != __last; ++__first)
+	    if (__pred(*__first))
+	      ++__n;
+	  return __n;
+	}
+
+<div class="cut"></div>
+
+[STL 的 算法 (algo) 分析（一）](../25/algo1.html)</br>
+[STL 的 算法 (algo) 分析（二）](../25/algo2.html)</br>
+[STL 的 算法 (algo) 分析（三）](../25/algo3.html)</br>
+[STL 的 算法 (algo) 分析（四）](../25/algo4.html)</br>
+[STL 的 算法 (algo) 分析（五）](../25/algo5.html)</br>
+[STL 的 算法 (algo) 分析（六）](../25/algo6.html)</br>
+[STL 的 算法 (algo) 分析（七）](../25/algo7.html)</br>
+[STL 的 算法 (algo) 分析（八）](../25/algo8.html)</br>

@@ -1,0 +1,230 @@
+---
+title: STL 的 slist 分析（一）
+layout: post
+key: 3355850e-e0ce-47f1-ad24-821cd6478b7e
+tags:
+  -slist 
+  -STL
+---
+
+Slist 是单链表，而之前介绍的 list 是双链表，list 有前向指针和后向指针分别用来指向前一个和后一个元素。而 Slist 只有一个后向指针用来指向下一个元素。Slist 不在 c++ 标准之内。
+
+<div class="cut"></div>
+
+#####类模板 \_Slist\_node\_base#####
+
+\_Slist\_node\_base 中定义了一个 \_Slist\_node\_base 类型的指针，\_Slist\_node\_base 用来作为下面定义的 \_Slist\_node 的父类，在 \_Slist\_node 中会用从父类继承而来的指针 \_M\_next 作为 \_Slist\_node 的后向指针。
+
+	struct _Slist_node_base
+	{
+	  _Slist_node_base* _M_next;
+	};
+
+<div class="cut"></div>
+
+\_\_slist\_make\_link 函数在节点 \_\_prev\_node 之后插入一个新节点 \_\_new\_node 。新插入的节点被作为返回值被返回。
+
+	inline _Slist_node_base*
+	__slist_make_link(_Slist_node_base* __prev_node,
+			  _Slist_node_base* __new_node)
+	{
+	  __new_node->_M_next = __prev_node->_M_next;
+	  __prev_node->_M_next = __new_node;
+	  return __new_node;
+	}
+
+<div class="cut"></div>
+
+\_\_slist\_previous 函数在以 \_\_head 为表头的链表中获取到当前节点 \_\_node 的前一个节点，并将该节点作为返回值返回。
+
+	inline _Slist_node_base* 
+	__slist_previous(_Slist_node_base* __head,
+			 const _Slist_node_base* __node)
+	{
+	  while (__head && __head->_M_next != __node)
+	    __head = __head->_M_next;
+	  return __head;
+	}
+
+<div class="cut"></div>
+
+\_\_slist\_splice\_after 函数将某链表的一段 (可能是当前链表的一段也可能是其他链表的一段) 粘贴到当前链表的节点 \_\_pos 之后。这段被粘贴的一段从 \_\_before\_first 的下一个元素开始，到 \_\_before\_last 的下一个元素结束 (不包括 \_before\_last 的下一个元素，它只是用来作为结束的标记) 。
+
+	inline void __slist_splice_after(_Slist_node_base* __pos,
+					 _Slist_node_base* __before_first,
+					 _Slist_node_base* __before_last)
+	{
+	  if (__pos != __before_first && __pos != __before_last) {
+	    _Slist_node_base* __first = __before_first->_M_next;
+	    _Slist_node_base* __after = __pos->_M_next;
+	    __before_first->_M_next = __before_last->_M_next;
+	    __pos->_M_next = __first;
+	    __before_last->_M_next = __after;
+	  }
+	}
+
+<div class="cut"></div>
+
+\_\_slist\_splice\_after 函数将某条链表整段插入到当前链表的节点 \_\_pos 之后。函数首先取得链表的最后一个元素 \_\_before\_last 。如果 \_\_before\_last 与 \_\_head 相等(\_\_head->next 指向的是链表的第一个元素) 则说明链表为空，直接退出。否则将整段链表粘贴在 \_\_pos 之后，并且将原先以 \_\_head 为表头的链表置为空链表。
+
+	inline void
+	__slist_splice_after(_Slist_node_base* __pos, _Slist_node_base* __head)
+	{
+	  _Slist_node_base* __before_last = __slist_previous(__head, 0);
+	  if (__before_last != __head) {
+	    _Slist_node_base* __after = __pos->_M_next;
+	    __pos->_M_next = __head->_M_next;
+	    __head->_M_next = 0;
+	    __before_last->_M_next = __after;
+	  }
+	}
+
+<div class="cut"></div>
+
+\_\_slist\_reverse 函数将链表中 \_\_node 之后的节点全部反向。
+
+	inline _Slist_node_base* __slist_reverse(_Slist_node_base* __node)
+	{
+	  _Slist_node_base* __result = __node;
+	  __node = __node->_M_next;
+	  __result->_M_next = 0;
+	  while(__node) {
+	    _Slist_node_base* __next = __node->_M_next;
+	    __node->_M_next = __result;
+	    __result = __node;
+	    __node = __next;
+	  }
+	  return __result;
+	}
+
+<div class="cut"></div>
+
+\_\_slist\_size 函数用来计算链表中 \_\_node 节点之后的节点个数。
+
+	inline size_t __slist_size(_Slist_node_base* __node)
+	{
+	  size_t __result = 0;
+	  for ( ; __node != 0; __node = __node->_M_next)
+	    ++__result;
+	  return __result;
+	}
+
+<div class="cut"></div>
+
+####类模板 \_Slist\_node####
+
+类模板 \_Slist\_node 是 \_Slist\_node\_base 的派生类。内部定义了一个 \_Tp 类型的成员变量。\_Slist\_node 用来存储链表中的节点。
+
+	template <class _Tp>
+	struct _Slist_node : public _Slist_node_base
+	{
+	  _Tp _M_data;
+	};
+
+<div class="cut"></div>
+
+####类模板 \_Slist\_iterator\_base####
+
+\_Slist\_iterator\_base 用来作为 Slist 的迭代器 \_Slist\_iterator 的父类。其内部首先定义了三个成员类型。 定义了一个 \_Slist\_node\_base 类型的指针 \_M\_node。定义了一个操作 \_M\_node 的成员函数 \_M\_incr() 。 重载了关系运算符 operator== 和 operator!= 用来判断给定 \_Slist\_iterator\_base 实例是否和当前 \_Slist\_iterator\_base 相等。
+
+	struct _Slist_iterator_base
+	{
+	  typedef size_t               size_type;
+	  typedef ptrdiff_t            difference_type;
+	  typedef forward_iterator_tag iterator_category;
+
+	  _Slist_node_base* _M_node;
+
+	  _Slist_iterator_base(_Slist_node_base* __x) : _M_node(__x) {}
+	  void _M_incr() { _M_node = _M_node->_M_next; }
+
+	  bool operator==(const _Slist_iterator_base& __x) const {
+	    return _M_node == __x._M_node;
+	  }
+	  bool operator!=(const _Slist_iterator_base& __x) const {
+	    return _M_node != __x._M_node;
+	  }
+	};
+
+<div class="cut"></div>
+
+####类模板 \_Slist\_iterator####
+
+\_Slist\_iterator 是 Slist 的迭代器。它是 \_Slist\_iterator\_base 的派生类。
+
+其内部首先定义了一些迭代器中约定俗成的成员类型， iterator, value\_type, pointer, reference 和 iterator\_category(iterator\_category 在基类中定义)。
+
+类中定义了三个构造函数，第一个构造函数让类的成员 \_M\_node 指向一个 \_Node 类型的对象 (\_M\_node 是 \_Slist\_iterator\_base 的指针。\_Node 是 \_Slist\_node<\_Tp> 的类型别名，它是 \_Slist\_iterator\_base 的派生类) 。第二个构造函数是一个空构造函数，将 \_M\_node 置为空指针。第三个构造函数用给定的 iterator 实例进行初始化当前类，让 \_M\_node 指向 \_\_x.\_M\_node 指向的位置。
+
+
+operator\*() 函数返回的迭代器中 \_M\_node 指向的对象 (\_Node 类型的对象) 的成员\_M\_data 。operator->() 返回的是指向 operator\*() 的指针。
+
+
+前置的自增运算 operator++() 用来将指针 \_M\_node 指向下一个元素(即 \_M\_node->\_M\_next 指向的元素)，通过 \_M\_incr() 实现，并且返回移动后的迭代器。后置的自增运算 operator++(int) 也是将指针 \_M\_node 指向下一个元素。但返回移动之前的迭代器。
+
+	template <class _Tp, class _Ref, class _Ptr>
+	struct _Slist_iterator : public _Slist_iterator_base
+	{
+	  typedef _Slist_iterator<_Tp, _Tp&, _Tp*>             iterator;
+	  typedef _Slist_iterator<_Tp, const _Tp&, const _Tp*> const_iterator;
+	  typedef _Slist_iterator<_Tp, _Ref, _Ptr>             _Self;
+
+	  typedef _Tp              value_type;
+	  typedef _Ptr             pointer;
+	  typedef _Ref             reference;
+	  typedef _Slist_node<_Tp> _Node;
+
+	  _Slist_iterator(_Node* __x) : _Slist_iterator_base(__x) {}
+	  _Slist_iterator() : _Slist_iterator_base(0) {}
+	  _Slist_iterator(const iterator& __x) : _Slist_iterator_base(__x._M_node) {}
+
+	  reference operator*() const { return ((_Node*) _M_node)->_M_data; }
+	#ifndef __SGI_STL_NO_ARROW_OPERATOR
+	  pointer operator->() const { return &(operator*()); }
+	#endif /* __SGI_STL_NO_ARROW_OPERATOR */
+
+	  _Self& operator++()
+	  {
+	    _M_incr();
+	    return *this;
+	  }
+	  _Self operator++(int)
+	  {
+	    _Self __tmp = *this;
+	    _M_incr();
+	    return __tmp;
+	  }
+	};
+
+<div class="cut"></div>
+
+函数 distance\_type 用来获取用来计算迭代器差值的类型。从 \_Slist\_iterator\_base  的定义可知，任何 Slist 的迭代器中的 difference\_type 都为 ptrdiff\_t 。因此函数直接返回了 ptrdiff\_t 类型的一个空指针。
+
+	inline ptrdiff_t* distance_type(const _Slist_iterator_base&) {
+	  return 0;
+	}
+
+<div class="cut"></div>
+
+函数 iterator\_category 用来获取 Slist 迭代器的类型，由 \_Slist\_iterator\_base 的定义的 iterator\_category 可知。迭代器类型为 forward\_iterator (即 iterator\_category 为 forward\_iterator\_tag) 。
+
+	inline forward_iterator_tag iterator_category(const _Slist_iterator_base&) {
+	  return forward_iterator_tag();
+	}
+
+<div class="cut"></div>
+
+函数 value\_type 用来获取迭代器中 \_M\_node 指向的对象中的成员 \_M\_data 的类型。返回的也是该类型的一个空指针。
+
+	template <class _Tp, class _Ref, class _Ptr> 
+	inline _Tp* value_type(const _Slist_iterator<_Tp, _Ref, _Ptr>&) {
+	  return 0;
+	}
+
+<div class="cut"></div>
+
+[STL 的 slist 分析（一）](../19/slist1.html)</br>
+[STL 的 slist 分析（二）](../19/slist2.html)</br>
+[STL 的 slist 分析（三）](../19/slist3.html)</br>
+[STL 的 slist 分析（四）](../19/slist4.html)</br>
+[STL 的 slist 分析（五）](../19/slist5.html)</br>

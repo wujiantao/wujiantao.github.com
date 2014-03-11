@@ -1,0 +1,318 @@
+---
+title: STL 的 tree 分析（五）
+layout: post
+key: 9e6de4aa-7a8d-4d37-89f3-a553decad865
+tags:
+  -tree 
+  -STL
+---
+
+函数 erase 函数指定位置上的一个节点，并释放该节点所占用的空间。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	inline void _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>
+	  ::erase(iterator __position)
+	{
+	  _Link_type __y = 
+	    (_Link_type) _Rb_tree_rebalance_for_erase(__position._M_node,
+						      _M_header->_M_parent,
+						      _M_header->_M_left,
+						      _M_header->_M_right);
+	  destroy_node(__y);
+	  --_M_node_count;
+	}
+
+<div class="cut"></div>
+
+函数 erase 删除红黑树中所有关键值为 \_\_x 的元素，并返回删除的元素个数。 
+
+函数首先调用 equal\_rang ，其中 equal\_range 返回一个 pair<iterator, iterator> 类型的变量 \_\_p ，其中 \_\_P.first 是从 begin() 开始，大于等于 \_\_x 的关键值的第一个迭代器。\_\_p.second 是从 begin() 开始，大于 \_\_x 的关键值的第一个迭代器，即 \_\_p.first(不包括 \_\_p.first) 之前的节点的关键值都小于 \_\_x 的关键值，p.second(包括 \_\_p.second) 之后的节点的关键值都大于 \_\_x 的关键值。则 \_\_p.first 和 \_\_p.second 限定的区域的节点就是关键值与 \_\_x 相同的节点。调用 erase 删除这些节点即可。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	typename _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::size_type 
+	_Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::erase(const _Key& __x)
+	{
+	  pair<iterator,iterator> __p = equal_range(__x);
+	  size_type __n = 0;
+	  distance(__p.first, __p.second, __n);
+	  erase(__p.first, __p.second);
+	  return __n;
+	}
+
+<div class="cut"></div>
+
+\_M\_copy 用来对以给定节点 \_\_x 为根的子树进行拷贝，令拷贝得到的子树的根节点为 \_\_top，则令 \_\_top 的父节点为 给定节点 \_\_p 。同时将 \_\_top 作为返回值返回。
+
+这里使用了尾递归的技术，函数只对 \_\_x 红黑树的右孩子进行了递归，而左孩子则通过循环进行拷贝，之所以要先对 \_\_x 的右孩子进行一次递归，然后再到 while 循环中对其余的部分进行构造，是为了获取到函数的返回值 \_\_top 。如果将第一个 if 语句的内容也整合到 while 循环中，则无法获取到需要的根节点 \_\_top 了。
+
+	template <class _Key, class _Val, class _KoV, class _Compare, class _Alloc>
+	typename _Rb_tree<_Key, _Val, _KoV, _Compare, _Alloc>::_Link_type 
+	_Rb_tree<_Key,_Val,_KoV,_Compare,_Alloc>
+	  ::_M_copy(_Link_type __x, _Link_type __p)
+	{
+				// structural copy.  __x and __p must be non-null.
+	  _Link_type __top = _M_clone_node(__x);
+	  __top->_M_parent = __p;
+	 
+	  __STL_TRY {
+	    if (__x->_M_right)
+	      __top->_M_right = _M_copy(_S_right(__x), __top);
+	    __p = __top;
+	    __x = _S_left(__x);
+
+	    while (__x != 0) {
+	      _Link_type __y = _M_clone_node(__x);
+	      __p->_M_left = __y;
+	      __y->_M_parent = __p;
+	      if (__x->_M_right)
+		__y->_M_right = _M_copy(_S_right(__x), __y);
+	      __p = __y;
+	      __x = _S_left(__x);
+	    }
+	  }
+	  __STL_UNWIND(_M_erase(__top));
+
+	  return __top;
+	}
+
+<div class="cut"></div>
+
+erase 函数删除以 \_\_x 为根节点的子树上的所有节点，函数没有考虑删除之后红黑树的性质是否得到保持，直接将该子树上的所有节点全部删除。这里也是采用了尾递归技术，只对节点的右孩子进行递归，左孩子通过循环来进行删除。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	void _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>
+	  ::_M_erase(_Link_type __x)
+	{
+					// erase without rebalancing
+	  while (__x != 0) {
+	    _M_erase(_S_right(__x));
+	    _Link_type __y = _S_left(__x);
+	    destroy_node(__x);
+	    __x = __y;
+	  }
+	}
+
+<div class="cut"></div>
+
+erase 函数用来删除迭代器 \_\_first 和 \_\_last 限定的区域的节点。\_\_first 到 \_\_last 之间的位置都是红黑树上的一个一个有效位置。while 循环中的 erase 函数是将该指定位置 \_\_first++ 上的节点删除。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	void _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>
+	  ::erase(iterator __first, iterator __last)
+	{
+	  if (__first == begin() && __last == end())
+	    clear();
+	  else
+	    while (__first != __last) erase(__first++);
+
+<div class="cut"></div>
+
+erase 函数用来删除所有关键值包含在 \_\_first 到 \_\_last 之间的节点。当前函数和上一个函数是不同的，上一个函数限定的位置，当前函数限定的是关键值。while 循环中的 erase 函数将关键值为 \*first++ 的节点进行删除。如果红黑树中允许不同的节点有相同的关键值可能每次删除的节点个数还会大于 1 个。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	void _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>
+	  ::erase(const _Key* __first, const _Key* __last) 
+	{
+	  while (__first != __last) erase(*__first++);
+	}
+
+<div class="cut"></div>
+
+函数 find 用来查找关键值为 \_\_k 的节点，如果找到则返回指向该节点的迭代器，否则返回 end()。
+
+在整个 while 循环中如果 \_\_y 不为 \_M\_header ，则节点 \_\_y 的关键值都一直要大于或者等于 \_\_k 。循环结束后 \_\_y 的关键值仍然大于或者等于 \_\_k ，并且不存在某个节点的关键值小于 \_\_y 的关键值而且大于等于 \_\_k。则此时检测\_\_y 的关键值是否与 \_\_k 相等即可，如果相等，则返回指向 \_\_y 的迭代器，否则返回 end() 。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	typename _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::iterator 
+	_Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::find(const _Key& __k)
+	{
+	  _Link_type __y = _M_header;      // Last node which is not less than __k. 
+	  _Link_type __x = _M_root();      // Current node. 
+
+	  while (__x != 0) 
+	    if (!_M_key_compare(_S_key(__x), __k))
+	      __y = __x, __x = _S_left(__x);
+	    else
+	      __x = _S_right(__x);
+
+	  iterator __j = iterator(__y);   
+	  return (__j == end() || _M_key_compare(__k, _S_key(__j._M_node))) ? 
+	     end() : __j;
+	}
+
+
+<div class="cut"></div>
+
+函数 count 用来返回红黑树中有多少个关键值为 \_\_k 的节点。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	typename _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::size_type 
+	_Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>
+	  ::count(const _Key& __k) const
+	{
+	  pair<const_iterator, const_iterator> __p = equal_range(__k);
+	  size_type __n = 0;
+	  distance(__p.first, __p.second, __n);
+	  return __n;
+	}
+
+<div class="cut"></div>
+
+lower\_bound 函数用来查找从 最左节点(begin()) 开始第一个关键值大于或者等于 \_\_k 的元素。并返回指向该元素的迭代器。find 函数的实现是一样的。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	typename _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::iterator 
+	_Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>
+	  ::lower_bound(const _Key& __k)
+	{
+	  _Link_type __y = _M_header; /* Last node which is not less than __k. */
+	  _Link_type __x = _M_root(); /* Current node. */
+
+	  while (__x != 0) 
+	    if (!_M_key_compare(_S_key(__x), __k))
+	      __y = __x, __x = _S_left(__x);
+	    else
+	      __x = _S_right(__x);
+
+	  return iterator(__y);
+	}
+
+<div class="cut"></div>
+
+upper\_bound 函数用来查找从 最左节点(begin()) 开始第一个关键值大于 \_\_k 的元素。并返回指向该元素的迭代器。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	typename _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::iterator 
+	_Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>
+	  ::upper_bound(const _Key& __k)
+	{
+	  _Link_type __y = _M_header; /* Last node which is greater than __k. */
+	  _Link_type __x = _M_root(); /* Current node. */
+
+	   while (__x != 0) 
+	     if (_M_key_compare(__k, _S_key(__x)))
+	       __y = __x, __x = _S_left(__x);
+	     else
+	       __x = _S_right(__x);
+
+	   return iterator(__y);
+	}
+
+<div class="cut"></div>
+
+函数 equal\_range 的返回值包含的区域内的节点的关键值都和 \_\_k 相同。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	inline 
+	pair<typename _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::iterator,
+	     typename _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::iterator>
+	_Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>
+	  ::equal_range(const _Key& __k)
+	{
+	  return pair<iterator, iterator>(lower_bound(__k), upper_bound(__k));
+	}
+
+<div class="cut"></div>
+
+函数 \_\_black\_count 用来计算对于一个给定节点其到根节点的路径上一共有多少个黑节点。
+
+	inline int 
+	__black_count(_Rb_tree_node_base* __node, _Rb_tree_node_base* __root)
+	{
+	  if (__node == 0)
+	    return 0;
+	  else {
+	    int __bc = __node->_M_color == _S_rb_tree_black ? 1 : 0;
+	    if (__node == __root)
+	      return __bc;
+	    else
+	      return __bc + __black_count(__node->_M_parent, __root);
+	  }
+
+<div class="cut"></div>
+
+函数 \_\_rb\_verify 用来验证当前红黑树的性质是否都得到保持。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	bool _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>::__rb_verify() const
+	{
+	  if (_M_node_count == 0 || begin() == end())
+	    return _M_node_count == 0 && begin() == end() &&
+	      _M_header->_M_left == _M_header && _M_header->_M_right == _M_header;
+	  
+	  int __len = __black_count(_M_leftmost(), _M_root());
+	  for (const_iterator __it = begin(); __it != end(); ++__it) {
+	    _Link_type __x = (_Link_type) __it._M_node;
+	    _Link_type __L = _S_left(__x);
+	    _Link_type __R = _S_right(__x);
+
+	    if (__x->_M_color == _S_rb_tree_red)
+	      if ((__L && __L->_M_color == _S_rb_tree_red) ||
+		  (__R && __R->_M_color == _S_rb_tree_red))
+		return false;
+
+	    if (__L && _M_key_compare(_S_key(__x), _S_key(__L)))
+	      return false;
+	    if (__R && _M_key_compare(_S_key(__R), _S_key(__x)))
+	      return false;
+
+	    if (!__L && !__R && __black_count(__x, _M_root()) != __len)
+	      return false;
+	  }
+
+	  if (_M_leftmost() != _Rb_tree_node_base::_S_minimum(_M_root()))
+	    return false;
+	  if (_M_rightmost() != _Rb_tree_node_base::_S_maximum(_M_root()))
+	    return false;
+
+	  return true;
+	}
+
+	}
+
+<div class="cut"></div>
+
+函数 operator== 用来判断两棵红黑树是否相同，具体的要求是节点数目相同，同时对应位置的节点内容相同(满足 operator== 的两棵红黑树，其形状不一定相同，只是其遍历顺序相同，而且对应位置上的节点值相同)。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	inline bool 
+	operator==(const _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>& __x, 
+		   const _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>& __y)
+	{
+	  return __x.size() == __y.size() &&
+		 equal(__x.begin(), __x.end(), __y.begin());
+	}
+
+<div class="cut"></div>
+
+函数 operator< 依照红黑树的遍历顺序，按照字典序的比较方式来比较两棵红黑树的大小。
+
+	template <class _Key, class _Value, class _KeyOfValue, 
+		  class _Compare, class _Alloc>
+	inline bool 
+	operator<(const _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>& __x, 
+		  const _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>& __y)
+	{
+	  return lexicographical_compare(__x.begin(), __x.end(), 
+					 __y.begin(), __y.end());
+	}
+
+<div class="cut"></div>
+
+[STL 的 tree 分析（一）](../20/rb_tree1.html)</br>
+[STL 的 tree 分析（二）](../20/rb_tree2.html)</br>
+[STL 的 tree 分析（三）](../20/rb_tree3.html)</br>
+[STL 的 tree 分析（四）](../20/rb_tree4.html)</br>
+[STL 的 tree 分析（五）](../20/rb_tree5.html)</br>

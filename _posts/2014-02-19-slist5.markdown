@@ -1,0 +1,229 @@
+---
+title: STL 的 slist 分析（五）
+layout: post
+key: 14c06eb5-5b9a-4f2a-8618-de3acdf70290
+tags:
+  -slist 
+  -STL
+---
+
+
+remove\_if 允许用户自定义判断函数(或者是函数对象，需重载 operator()) 。来删除 slit 中值满足 \_\_pred 条件的节点。
+
+	template <class _Tp, class _Alloc> 
+	template <class _Predicate>
+	void slist<_Tp,_Alloc>::remove_if(_Predicate __pred)
+	{
+	  _Node_base* __cur = &this->_M_head;
+	  while (__cur->_M_next) {
+	    if (__pred(((_Node*) __cur->_M_next)->_M_data))
+	      this->_M_erase_after(__cur);
+	    else
+	      __cur = __cur->_M_next;
+	  }
+	}
+
+<div class="cut"></div>
+
+unique 允许自定义二元比较函数(或者是函数对象，需重载 operator()) 来删除 slist 中的重复节点，前提是 slist 是已排序的。
+
+	template <class _Tp, class _Alloc> template <class _BinaryPredicate> 
+	void slist<_Tp,_Alloc>::unique(_BinaryPredicate __pred)
+	{
+	  _Node* __cur = (_Node*) this->_M_head._M_next;
+	  if (__cur) {
+	    while (__cur->_M_next) {
+	      if (__pred(((_Node*)__cur)->_M_data, 
+			 ((_Node*)(__cur->_M_next))->_M_data))
+		this->_M_erase_after(__cur);
+	      else
+		__cur = (_Node*) __cur->_M_next;
+	    }
+	  }
+	}
+	
+<div class="cut"></div>
+
+merge 允许提供自定义的大小比较函数，来实现两个有序链表的合并。
+
+	template <class _Tp, class _Alloc> template <class _StrictWeakOrdering>
+	void slist<_Tp,_Alloc>::merge(slist<_Tp,_Alloc>& __x,
+				      _StrictWeakOrdering __comp)
+	{
+	  _Node_base* __n1 = &this->_M_head;
+	  while (__n1->_M_next && __x._M_head._M_next) {
+	    if (__comp(((_Node*) __x._M_head._M_next)->_M_data,
+		       ((_Node*)       __n1->_M_next)->_M_data))
+	      __slist_splice_after(__n1, &__x._M_head, __x._M_head._M_next);
+	    __n1 = __n1->_M_next;
+	  }
+	  if (__x._M_head._M_next) {
+	    __n1->_M_next = __x._M_head._M_next;
+	    __x._M_head._M_next = 0;
+	  }
+	}
+
+<div class="cut"></div>
+
+sort 函数允许提供自定义的大小比较函数来实现 slist 的排序。
+
+	template <class _Tp, class _Alloc> template <class _StrictWeakOrdering> 
+	void slist<_Tp,_Alloc>::sort(_StrictWeakOrdering __comp)
+	{
+	  if (this->_M_head._M_next && this->_M_head._M_next->_M_next) {
+	    slist __carry;
+	    slist __counter[64];
+	    int __fill = 0;
+	    while (!empty()) {
+	      __slist_splice_after(&__carry._M_head,
+				   &this->_M_head, this->_M_head._M_next);
+	      int __i = 0;
+	      while (__i < __fill && !__counter[__i].empty()) {
+		__counter[__i].merge(__carry, __comp);
+		__carry.swap(__counter[__i]);
+		++__i;
+	      }
+	      __carry.swap(__counter[__i]);
+	      if (__i == __fill)
+		++__fill;
+	    }
+
+	    for (int __i = 1; __i < __fill; ++__i)
+	      __counter[__i].merge(__counter[__i-1], __comp);
+	    this->swap(__counter[__fill-1]);
+	  }
+	}
+
+<div class="cut"></div>
+
+operator= 用来将链表 \_\_x 中的内容复制到当前 slist 中。并且覆盖掉原先 \_\_slist 的内容。
+
+	template <class _Tp, class _Alloc>
+	slist<_Tp,_Alloc>& slist<_Tp,_Alloc>::operator=(const slist<_Tp,_Alloc>& __x)
+	{
+	  if (&__x != this) {
+	    _Node_base* __p1 = &this->_M_head;
+	    _Node* __n1 = (_Node*) this->_M_head._M_next;
+	    const _Node* __n2 = (const _Node*) __x._M_head._M_next;
+	    while (__n1 && __n2) {
+	      __n1->_M_data = __n2->_M_data;
+	      __p1 = __n1;
+	      __n1 = (_Node*) __n1->_M_next;
+	      __n2 = (const _Node*) __n2->_M_next;
+	    }
+	    if (__n2 == 0)
+	      this->_M_erase_after(__p1, 0);
+	    else
+	      _M_insert_after_range(__p1, const_iterator((_Node*)__n2), 
+					  const_iterator(0));
+	  }
+	  return *this;
+	}
+
+<div class="cut"></div>
+
+\_M\_fill\_assign 函数用来将 \_\_n 个值为 \_\_val 的节点复制到当前 slist 中并且覆盖点 slist 中原先的内容。
+
+	template <class _Tp, class _Alloc>
+	void slist<_Tp, _Alloc>::_M_fill_assign(size_type __n, const _Tp& __val) {
+	  _Node_base* __prev = &this->_M_head;
+	  _Node* __node = (_Node*) this->_M_head._M_next;
+	  for ( ; __node != 0 && __n > 0 ; --__n) {
+	    __node->_M_data = __val;
+	    __prev = __node;
+	    __node = (_Node*) __node->_M_next;
+	  }
+	  if (__n > 0)
+	    _M_insert_after_fill(__prev, __n, __val);
+	  else
+	    this->_M_erase_after(__prev, 0);
+	}
+	
+<div class="cut"></div>
+
+assign 函数用来将 \_\_n 个值为 \_\_val 的节点复制到当前 slist 中，并且覆盖掉原先 slist 中的内容，通过调用 \_M\_fill\_assign 来实现。
+
+	  void assign(size_type __n, const _Tp& __val)
+	    { _M_fill_assign(__n, __val); }
+
+<div class="cut"></div>
+
+assign 函数，根据模板形参类型的不同，分别调用 \_M\_assign\_dispatch 的两种不同定义。如果模板形参类型为整型则调用第一种定义，否则调用第二种定义。通过用 \_InputIterator 来实例化 \_Is\_Integer 可以检测出 \_InputIterator 是否为整型。如果 \_InputIterator 为整型，则 \_Integral 为 \_true\_type 的类型别名，否则为 \_false\_type 的类型别名。
+
+	  template <class _InputIterator>
+	  void assign(_InputIterator __first, _InputIterator __last) {
+	    typedef typename _Is_integer<_InputIterator>::_Integral _Integral;
+	    _M_assign_dispatch(__first, __last, _Integral());
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_assign\_dispatch 调用 \_M\_fill\_assign 函数将 \_\_n 个值为 \_\_val 的节点复制到当前 slist。替换掉 slist 原先的节点。
+
+	  template <class _Integer>
+	  void _M_assign_dispatch(_Integer __n, _Integer __val, __true_type)
+	    { _M_fill_assign((size_type) __n, (_Tp) __val); }
+
+<div class="cut"></div>
+
+函数 \_M\_assign\_dispatch 用 \_\_first 和 \_\_last 之间的元素构造一个新节点，并将这些新节点复制到当前 slist 。替换掉 slist 原先的节点。
+
+	template <class _Tp, class _Alloc> template <class _InputIter>
+	void
+	slist<_Tp, _Alloc>::_M_assign_dispatch(_InputIter __first, _InputIter __last,
+					       __false_type)
+	{
+	  _Node_base* __prev = &this->_M_head;
+	  _Node* __node = (_Node*) this->_M_head._M_next;
+	  while (__node != 0 && __first != __last) {
+	    __node->_M_data = *__first;
+	    __prev = __node;
+	    __node = (_Node*) __node->_M_next;
+	    ++__first;
+	  }
+	  if (__first != __last)
+	    _M_insert_after_range(__prev, __first, __last);
+	  else
+	    this->_M_erase_after(__prev, 0);
+	}
+
+<div class="cut"></div>
+
+operator== 判断两个链表是否相等，判断相等的要求有两点，第一，两个链表的节点个数要一致；第二，两个链表的对应位置的节点的值要相等。
+
+	template <class _Tp, class _Alloc>
+	inline bool 
+	operator==(const slist<_Tp,_Alloc>& _SL1, const slist<_Tp,_Alloc>& _SL2)
+	{
+	  typedef typename slist<_Tp,_Alloc>::const_iterator const_iterator;
+	  const_iterator __end1 = _SL1.end();
+	  const_iterator __end2 = _SL2.end();
+
+	  const_iterator __i1 = _SL1.begin();
+	  const_iterator __i2 = _SL2.begin();
+	  while (__i1 != __end1 && __i2 != __end2 && *__i1 == *__i2) {
+	    ++__i1;
+	    ++__i2;
+	  }
+	  return __i1 == __end1 && __i2 == __end2;
+	}
+
+<div class="cut"></div>
+
+operator< 用来比较两个 slist 的大小关系。具体的判断方法通过调用 lexicographical\_compare 来对 slist 中的元素按字典序来进行比较。lexicographical\_compare 在 stl\_algobase.h 中定义。
+
+	template <class _Tp, class _Alloc>
+	inline bool
+	operator<(const slist<_Tp,_Alloc>& _SL1, const slist<_Tp,_Alloc>& _SL2)
+	{
+	  return lexicographical_compare(_SL1.begin(), _SL1.end(), 
+					 _SL2.begin(), _SL2.end());
+	}
+
+<div class="cut"></div>
+
+[STL 的 slist 分析（一）](../19/slist1.html)</br>
+[STL 的 slist 分析（二）](../19/slist2.html)</br>
+[STL 的 slist 分析（三）](../19/slist3.html)</br>
+[STL 的 slist 分析（四）](../19/slist4.html)</br>
+[STL 的 slist 分析（五）](../19/slist5.html)</br>

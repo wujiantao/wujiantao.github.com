@@ -1,0 +1,247 @@
+---
+title: STL 的 tree 分析（三）
+layout: post
+key: fd8f2d09-a8fa-4348-8b89-1f033f54a0b6
+tags:
+  -tree 
+  -STL
+---
+
+
+类模板 \_Rb\_tree\_alloc\_base 用来为红黑树的节点进行内存的分配和回收。模板形参 \_Tp 表示红黑树节点中存储的关键字值的类型， \_Alloc 表示内存分配器类型，\_S\_instanceless 表示 \_Alloc 的不同实例之间是否存在区别。
+
+在 \_Rb\_tree\_alloc\_base 的默认定义中定义了一个 \_Alloc\_traits<\_Rb\_tree\_node<\_Tp>, \_Alloc> ::allocator\_type 类型的实例 \_M\_node\_allocator。根据 stl\_alloc.h 中的定义， \_M\_node\_allocator 会为 \_Rb\_tree\_node<\_Tp> 类型的变量分配和回收内存。其内部定义的成员函数 \_M\_get\_node 能够为红黑树节点分配一个 \_Rb\_tree\_node <\_Tp> 实例所需的空间。\_M\_put\_node 回收一个红黑树节点所占用的空间。
+
+在 \_Rb\_tree\_alloc\_base 中同时还定义了另一个成员变量 \_M\_header，\_M\_header 的作用已在前面进行过介绍。
+
+	template <class _Tp, class _Alloc, bool _S_instanceless>
+	class _Rb_tree_alloc_base {
+	public:
+	  typedef typename _Alloc_traits<_Tp, _Alloc>::allocator_type allocator_type;
+	  allocator_type get_allocator() const { return _M_node_allocator; }
+
+	  _Rb_tree_alloc_base(const allocator_type& __a)
+	    : _M_node_allocator(__a), _M_header(0) {}
+
+	protected:
+	  typename _Alloc_traits<_Rb_tree_node<_Tp>, _Alloc>::allocator_type
+		   _M_node_allocator;
+	  _Rb_tree_node<_Tp>* _M_header;
+
+	  _Rb_tree_node<_Tp>* _M_get_node() 
+	    { return _M_node_allocator.allocate(1); }
+	  void _M_put_node(_Rb_tree_node<_Tp>* __p) 
+	    { _M_node_allocator.deallocate(__p, 1); }
+	};
+
+<div class="cut"></div>
+
+当 \_S\_instanceless 为 true 时， \_Rb\_tree\_alloc\_base 有一个偏特化的定义，其中定义了一个成员类型 \_Alloc\_type ，其为 \_Alloc\_traits<\_Rb\_tree\_node<\_Tp>, \_Alloc>::\_Alloc\_type 类型的类型别名，由 \_Alloc\_type 的静态成员函数提供为红黑树节点分配和回收内存的功能。
+
+	template <class _Tp, class _Alloc>
+	class _Rb_tree_alloc_base<_Tp, _Alloc, true> {
+	public:
+	  typedef typename _Alloc_traits<_Tp, _Alloc>::allocator_type allocator_type;
+	  allocator_type get_allocator() const { return allocator_type(); }
+
+	  _Rb_tree_alloc_base(const allocator_type&) : _M_header(0) {}
+
+	protected:
+	  _Rb_tree_node<_Tp>* _M_header;
+
+	  typedef typename _Alloc_traits<_Rb_tree_node<_Tp>, _Alloc>::_Alloc_type
+		  _Alloc_type;
+
+	  _Rb_tree_node<_Tp>* _M_get_node()
+	    { return _Alloc_type::allocate(1); }
+	  void _M_put_node(_Rb_tree_node<_Tp>* __p)
+	    { _Alloc_type::deallocate(__p, 1); }
+	};
+
+<div class="cut"></div>
+
+\_Rb\_tree\_base 继承自 \_Rb\_tree\_alloc\_base<\_Tp, \_Alloc, \_Alloc\_traits<\_Tp, \_Alloc>::\_S\_instanceless> 。其中 \_Alloc\_traits<\_Tp, \_Alloc>::\_S\_instanceless 的值由 \_Rb\_tree\_base 的模板形参 \_Tp 和 \_Alloc 一起确定。在构造函数中为 \_M\_header 申请了一个节点所需的空间，析构函数中对 \_M\_header 所占用的空间进行释放。
+
+	template <class _Tp, class _Alloc>
+	struct _Rb_tree_base
+	  : public _Rb_tree_alloc_base<_Tp, _Alloc,
+				       _Alloc_traits<_Tp, _Alloc>::_S_instanceless>
+	{
+	  typedef _Rb_tree_alloc_base<_Tp, _Alloc,
+				      _Alloc_traits<_Tp, _Alloc>::_S_instanceless>
+		  _Base;
+	  typedef typename _Base::allocator_type allocator_type;
+
+	  _Rb_tree_base(const allocator_type& __a) 
+	    : _Base(__a) { _M_header = _M_get_node(); }
+	  ~_Rb_tree_base() { _M_put_node(_M_header); }
+
+	};
+
+<div class="cut"></div>
+
+\_Rb\_tree 继承自 \_Rb\_tree\_base<\_Value, Alloc> 。其有五个模板形参， \_Key 表示红黑树节点中的关键值的类型， \_Value 是绑定了关键值和数据值的一个类型(比如 map 中实例化 \_Rb\_tree  时采用的是 pair<\_Key, \_Data> 来实例化 \_Value, 其中 \_Key 为关键值类型，\_Data 为数据值类型)。\_KeyOfValue 可以用来获取 \_Value 中的 \_Key 值(\_KeyOfValue 中重载了 \_Key& operator()(\_Value&) 函数)。\_Compare 是为类型为 \_Key 的不同元素提供二元比较函数的函数对象，\_Alloc 用来为红黑树的节点分配和回收内存的内存分配器，其缺省实参为 allocator<\_Value>。
+
+	template <class _Key, class _Value, class _KeyOfValue, class _Compare,
+		  class _Alloc = __STL_DEFAULT_ALLOCATOR(_Value) >
+	class _Rb_tree : protected _Rb_tree_base<_Value, _Alloc> {
+
+<div class="cut"></div>
+
+在 _Rb_tree 中定义了一系列的成员类型。
+
+	protected:
+	  typedef _Rb_tree_node_base* _Base_ptr;
+	  typedef _Rb_tree_node<_Value> _Rb_tree_node;
+	  typedef _Rb_tree_Color_type _Color_type;
+	public:
+	  typedef _Key key_type;
+	  typedef _Value value_type;
+	  typedef value_type* pointer;
+	  typedef const value_type* const_pointer;
+	  typedef value_type& reference;
+	  typedef const value_type& const_reference;
+	  typedef _Rb_tree_node* _Link_type;
+	  typedef size_t size_type;
+	  typedef ptrdiff_t difference_type;
+
+<div class="cut"></div>
+
+函数 \_M\_create\_node 根据一个给定的节点值分配一个节点所需的空间，并将节点值复制到分配好的空间中。
+
+	  _Link_type _M_create_node(const value_type& __x)
+	  {
+	    _Link_type __tmp = _M_get_node();
+	    __STL_TRY {
+	      construct(&__tmp->_M_value_field, __x);
+	    }
+	    __STL_UNWIND(_M_put_node(__tmp));
+	    return __tmp;
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_clone\_node 用来复制一个和给定节点的节点值一样的新节点。
+
+	  _Link_type _M_clone_node(_Link_type __x)
+	  {
+	    _Link_type __tmp = _M_create_node(__x->_M_value_field);
+	    __tmp->_M_color = __x->_M_color;
+	    __tmp->_M_left = 0;
+	    __tmp->_M_right = 0;
+	    return __tmp;
+	  }
+
+<div class="cut"></div>
+
+函数 destory\_node 用来删除给定节点，并释放该节点所占用的空间。
+
+	  void destroy_node(_Link_type __p)
+	  {
+	    destroy(&__p->_M_value_field);
+	    _M_put_node(__p);
+	  }
+
+<div class="cut"></div>
+
+类模板中定义了两个成员变量，其中 \_M\_node\_count 用来记录红黑树中的节点个数，而 \_M\_key\_compare 作为 \_Compare 的一个实例，用来对节点中的关键字值进行比较(不涉及数据值)。
+
+	  size_type _M_node_count; // keeps track of size of tree
+	  _Compare _M_key_compare;
+
+<div class="cut"></div>
+
+\_M\_root() 用来获取根节点，其中成员变量 \_M\_header 的 \_M\_parent 指针指向红黑树的根节点。\_M\_leftmost() 返回红黑树中的最左节点，即关键字值最小的节点。\_M\_header 的 \_M\_left 指针指向这一最左节点。\_M\_rightmost 返回红黑树中的最右节点，即关键字值最大的节点，其中 \_M\_header 的 \_M\_right 指针指向这一节点。
+
+	  _Link_type& _M_root() const 
+	    { return (_Link_type&) _M_header->_M_parent; }
+	  _Link_type& _M_leftmost() const 
+	    { return (_Link_type&) _M_header->_M_left; }
+	  _Link_type& _M_rightmost() const 
+	    { return (_Link_type&) _M_header->_M_right; }
+
+<div class="cut"></div>
+
+函数 \_S\_left 返回给定节点的左孩子，\_S\_right 返回给定节点的右孩子，\_S\_parent 返回给定节点的父节点，\_S\_value 返回给定节点的节点值(绑定了关键字和数据的节点值)。\_S\_key 返回给定节点的关键字值，\_S\_color 返回给定节点的颜色值。在类模板中还有各有一个与一下函数同名的重载函数，只是函数的形参类型不是_Link_type 而是 _Base_ptr ，这样区别不大，不再赘述。
+
+	  static _Link_type& _S_left(_Link_type __x)
+	    { return (_Link_type&)(__x->_M_left); }
+	  static _Link_type& _S_right(_Link_type __x)
+	    { return (_Link_type&)(__x->_M_right); }
+	  static _Link_type& _S_parent(_Link_type __x)
+	    { return (_Link_type&)(__x->_M_parent); }
+	  static reference _S_value(_Link_type __x)
+	    { return __x->_M_value_field; }
+	  static const _Key& _S_key(_Link_type __x)
+	    { return _KeyOfValue()(_S_value(__x)); }
+	  static _Color_type& _S_color(_Link_type __x)
+	    { return (_Color_type&)(__x->_M_color); }
+
+<div class="cut"></div>
+
+以下构造函数在初始化列表中用缺省的构造函数初始化了基类和两个成员变量，在函数体内调用 \_M\_empty\_initialize() 对 \_M\_header 进行初始化(在基类构造函数中会为 \_M\_header 申请空间) 。
+
+	  _Rb_tree()
+	    : _Base(allocator_type()), _M_node_count(0), _M_key_compare()
+	    { _M_empty_initialize(); }
+
+<div class="cut"></div>
+
+以下构造函数提供了一个 \_Compare 类型的实例来初始化 \_M\_key\_compare。其他的和上一个构造函数一样。
+
+	  _Rb_tree(const _Compare& __comp)
+	    : _Base(allocator_type()), _M_node_count(0), _M_key_compare(__comp) 
+	    { _M_empty_initialize(); }
+
+<div class="cut"></div>
+
+以下构造函数提供了一个 \_Compare 类型的实例和一个 allocator\_type 类型的实例，分别用来初始化 \_M\_key\_compare 和基类。
+
+	  _Rb_tree(const _Compare& __comp, const allocator_type& __a)
+	    : _Base(__a), _M_node_count(0), _M_key_compare(__comp) 
+	    { _M_empty_initialize(); }
+
+<div class="cut"></div>
+
+以构造函数中，首先判断给定的红黑树中是否是空树，如果是，则调用 \_M\_empty\_initialize 函数来初始化当前红黑树，否则调用 \_M\_copy 将给定红黑树中的所有节点复制到当前红黑树中。复制完毕后根节点的父节点指向 \_M\_header，\_M\_header 的 \_M\_parent, \_M\_left, \_M\_right 分别指向根节点，最左节点和最右节点。并更新 \_M\_node\_count 的值。
+
+	  _Rb_tree(const _Rb_tree<_Key,_Value,_KeyOfValue,_Compare,_Alloc>& __x) 
+	    : _Base(__x.get_allocator()),
+	      _M_node_count(0), _M_key_compare(__x._M_key_compare)
+	  { 
+	    if (__x._M_root() == 0)
+	      _M_empty_initialize();
+	    else {
+	      _S_color(_M_header) = _S_rb_tree_red;
+	      _M_root() = _M_copy(__x._M_root(), _M_header);
+	      _M_leftmost() = _S_minimum(_M_root());
+	      _M_rightmost() = _S_maximum(_M_root());
+	    }
+	    _M_node_count = __x._M_node_count;
+	  }
+
+<div class="cut"></div>
+
+析构函数中会调用 clear() 来清除红黑树中的所有节点，并释放相应的空间，M\_header 节点的销毁和释放有基类的析构函数进行。
+
+	  ~_Rb_tree() { clear(); }
+	  
+<div class="cut"></div>
+
+\_M\_empty\_initialize 函数用来初始化 \_M\_header 中的内容，将 \_M\_header 颜色值设为红色，并设根节点为空，最左节点和最右节点都指向 \_M\_header。
+
+	  void _M_empty_initialize() {
+	    _S_color(_M_header) = _S_rb_tree_red; // used to distinguish header from 
+						  // __root, in iterator.operator++
+	    _M_root() = 0;
+	    _M_leftmost() = _M_header;
+	    _M_rightmost() = _M_header;
+	  }
+
+<div class="cut"></div>
+
+[STL 的 tree 分析（一）](../20/rb_tree1.html)</br>
+[STL 的 tree 分析（二）](../20/rb_tree2.html)</br>
+[STL 的 tree 分析（三）](../20/rb_tree3.html)</br>
+[STL 的 tree 分析（四）](../20/rb_tree4.html)</br>
+[STL 的 tree 分析（五）](../20/rb_tree5.html)</br>

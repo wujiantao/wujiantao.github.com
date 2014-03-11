@@ -1,0 +1,311 @@
+---
+title: STL 的 rope 分析（五）
+layout: post
+key: 8f90295b-7bdd-4782-9fd2-b3366664172a
+tags:
+  -rope 
+  -STL
+---
+
+####类模板 rope####
+类 rope 继承自 \_Rope\_base<\_CharT, \_Alloc> 类。
+
+template <class _CharT, class _Alloc>
+class rope : public _Rope_base<_CharT,_Alloc> {
+
+<div class="cut"></div>
+
+其中定义了一系列的成员类型。
+
+	    typedef _CharT value_type;
+	    typedef ptrdiff_t difference_type;
+	    typedef size_t size_type;
+	    typedef _CharT const_reference;
+	    typedef const _CharT* const_pointer;
+	    typedef _Rope_iterator<_CharT,_Alloc> iterator;
+	    typedef _Rope_const_iterator<_CharT,_Alloc> const_iterator;
+	    typedef _Rope_char_ref_proxy<_CharT,_Alloc> reference;
+	    typedef _Rope_char_ptr_proxy<_CharT,_Alloc> pointer;
+	    typedef _Rope_base<_CharT,_Alloc> _Base;
+	    typedef typename _Base::allocator_type allocator_type;
+	    typedef __GC_CONST _CharT* _Cstrptr;
+	    typedef _Rope_RopeRep<_CharT,_Alloc> _RopeRep;
+	    typedef _Rope_RopeConcatenation<_CharT,_Alloc> _RopeConcatenation;
+	    typedef _Rope_RopeLeaf<_CharT,_Alloc> _RopeLeaf;
+	    typedef _Rope_RopeFunction<_CharT,_Alloc> _RopeFunction;
+	    typedef _Rope_RopeSubstring<_CharT,_Alloc> _RopeSubstring;
+
+<div class="cut"></div>
+
+定义了一个成员变量 \_S\_empty\_c\_str[1]，\_S\_empty\_c\_str 用来表示当前 rope 中是否没有元素。但 \_S\_empty\_c\_str[0] = 0 时，表示 rope 中没有元素存在。同时定义一个枚举变量，\_S\_copy\_max 作为一个常量值使用。
+
+	    static _CharT _S_empty_c_str[1];
+	    enum { _S_copy_max = 23 };
+
+<div class="cut"></div>
+
+函数 \_S\_is0 用来判断给定元素 \_\_c 是否是结束符。
+
+	    static bool _S_is0(_CharT __c) { return __c == _S_eos((_CharT*)0); }
+
+<div class="cut"></div>
+
+函数 \_S\_fetch 用来检索 \_\_r 表示的 rope 中在指定位置 \_\_i 上的元素。首先检测 \_\_r 的 \_M\_c\_string 是否为空，如果不为空，则说明根节点是 \_S\_leaf 类型的节点，\_M\_c\_string 和 \_M\_data 指向同一个位置。直接返回 \_M\_c\_string[i] 即可。
+
+如果 \_M\_c\_string 为空，则从根节点开始往下进行搜索，如果 \_\_r 是 \_S\_concat 类型的节点，令 \_\_left 为 \_\_r 的左子节点，令 \_\_left\_len = \_\_left->\_M\_size 。如果 i >= \_\_left\_len 说明以 \_\_r 为根的树中，第 \_\_i 个元素在其右子树上，令 \_\_i -= \_\_left\_len, \_\_r 更新为其右子节点。否则如果 i < \_\_left\_len ，则说明第 \_\_i 个节点在其左子节点上，更新 \_\_r 为其左子节点。
+
+如果节点类型为 \_S\_leaf ，则直接返回 \_M\_data[\_\_i]。如果节点类型为 \_S\_function 或者 \_S\_substringfn ，声明一个 \_CharT 类型的变量 \_\_result ，调用 (\*\_M\_fn)(\_\_i, 1, &result) 将当前节点的第 \_\_i 个 个元素生成放置但 \_\_result 所在的地址上。然后将 \_\_result 作为返回值返回。
+
+函数没有对位置 \_\_i 的有效性进行检测。
+
+	template <class _CharT, class _Alloc>
+	_CharT
+	rope<_CharT,_Alloc>::_S_fetch(_RopeRep* __r, size_type __i)
+	{
+	    __GC_CONST _CharT* __cstr = __r->_M_c_string;
+
+	    __stl_assert(__i < __r->_M_size);
+	    if (0 != __cstr) return __cstr[__i]; 
+	    for(;;) {
+	      switch(__r->_M_tag) {
+		case _RopeRep::_S_concat:
+		    {
+			_RopeConcatenation* __c = (_RopeConcatenation*)__r;
+			_RopeRep* __left = __c->_M_left;
+			size_t __left_len = __left->_M_size;
+
+			if (__i >= __left_len) {
+			    __i -= __left_len;
+			    __r = __c->_M_right;
+			} else {
+			    __r = __left;
+			}
+		    }
+		    break;
+		case _RopeRep::_S_leaf:
+		    {
+			_RopeLeaf* __l = (_RopeLeaf*)__r;
+			return __l->_M_data[__i];
+		    }
+		case _RopeRep::_S_function:
+		case _RopeRep::_S_substringfn:
+		    {
+			_RopeFunction* __f = (_RopeFunction*)__r;
+			_CharT __result;
+
+			(*(__f->_M_fn))(__i, 1, &__result);
+			return __result;
+		    }
+	      }
+	    }
+	}
+
+<div class="cut"></div>
+
+函数 \_S\_apply\_to\_pieces 将 \_\_r 表示的 rope 中从 \_\_begin 到 \_\_end 之间的元素都应用 \_\_c 中 operator() 函数所定义的操作。\_\_char\_consumer 是一个抽象类，具体的操作可以在其继承类的 operator() 函数中进行定义，然后将其继承类的实例作为当前函数的实参，因为基类的引用是可以引用继承类的。
+
+如果当前 \_\_r 节点是 \_M\_concat 类型，令 \_\_left 为其左子节点，令 \_\_left\_len = \_\_left->\_M\_size 。则如果 \_\_begin < \_\_left\_len，则说明其左子树上的一部分节点包括在 \_\_begin 和 \_\_end 之间，需要应用 \_\_c 中定义的操作，调用 \_S\_apply\_to\_pieces(\_\_c, \_\_left, \_\_begin, min(\_\_left\_len, \_\_end))。
+
+如果 \_\_end > \_\_left\_len 则说明其右子树上的一部分节点包含在 \_\_begin 和 \_\_end 之间(\_\_begin < \_\_left\_len 和 \_\_end > \_\_left\_len 二者不互斥)。令 \_\_right 为其右子节点，调用 \_S\_apply\_to\_pieces(\_\_c, \_\_right, max(left\_len, \_\_begin) - \_\_left\_len, \_\_end - \_\_left\_len)。
+
+如果当前 \_\_r 节点为 \_M\_leaf 类型的节点，则直接对 \_\_r 节点的数据域中 \_\_begin 到 \_\_end 之间的元素应用 \_\_c 中的操作，即调用 \_\_c((\_RopeLeaf\*)\_\_r->\_M\_data + \_\_begin, \_\_end - \_\_begin)。c.operator() 函数的第二个形参表示的是元素序列的长度。
+
+如果当前 \_\_r 节点的类型为 \_S\_function 或者 \_S\_substringfn，令 \_\_len 为 \_\_begin 到 \_\_end 之间的长度，首先申请足够容纳 \_\_len 个元素的空间，并将申请的空间的首地址存储在 \_\_buffer 中，然后调用 \_\_r 的 \_M\_fn，将当前节点中从 \_\_begin 位置开始长度为 \_\_len 的元素序列都读到 \_\_buffer 中。再对 \_\_buffer 中的元素应用 \_\_c.operator() 中定义的操作。然后将 \_\_buffer 中的空间进行回收。
+
+	template <class _CharT, class _Alloc>
+	bool rope<_CharT, _Alloc>::_S_apply_to_pieces(
+					_Rope_char_consumer<_CharT>& __c,
+					const _RopeRep* __r,
+					size_t __begin, size_t __end)
+	{
+	    if (0 == __r) return true;
+	    switch(__r->_M_tag) {
+		case _RopeRep::_S_concat:
+		    {
+			_RopeConcatenation* __conc = (_RopeConcatenation*)__r;
+			_RopeRep* __left =  __conc->_M_left;
+			size_t __left_len = __left->_M_size;
+			if (__begin < __left_len) {
+			    size_t __left_end = min(__left_len, __end);
+			    if (!_S_apply_to_pieces(__c, __left, __begin, __left_end))
+				return false;
+			}
+			if (__end > __left_len) {
+			    _RopeRep* __right =  __conc->_M_right;
+			    size_t __right_start = max(__left_len, __begin);
+			    if (!_S_apply_to_pieces(__c, __right,
+						 __right_start - __left_len,
+						 __end - __left_len)) {
+				return false;
+			    }
+			}
+		    }
+		    return true;
+		case _RopeRep::_S_leaf:
+		    {
+			_RopeLeaf* __l = (_RopeLeaf*)__r;
+			return __c(__l->_M_data + __begin, __end - __begin);
+		    }
+		case _RopeRep::_S_function:
+		case _RopeRep::_S_substringfn:
+		    {
+			_RopeFunction* __f = (_RopeFunction*)__r;
+			size_t __len = __end - __begin;
+			bool __result;
+			_CharT* __buffer =
+			  (_CharT*)alloc::allocate(__len * sizeof(_CharT));
+			__STL_TRY {
+			  (*(__f->_M_fn))(__begin, __len, __buffer);
+			  __result = __c(__buffer, __len);
+			  alloc::deallocate(__buffer, __len * sizeof(_CharT));
+			}
+			__STL_UNWIND((alloc::deallocate(__buffer,
+							__len * sizeof(_CharT))))
+			return __result;
+		    }
+		default:
+		    __stl_assert(false);
+		    /*NOTREACHED*/
+		    return false;
+	    }
+	}
+<div class="cut"></div>
+
+rope 中定义了两个函数 \_S\_unref 和 \_S\_ref，两个函数都不做任何操作，只有在 \_\_GC 没有被定义时，函数才会调用 \_RopeRep 中同名函数的操作。这里假设 \_\_GC 已被定义。
+
+      static void _S_unref(_RopeRep*) {}
+      static void _S_ref(_RopeRep*) {}
+
+<div class="cut"></div>
+
+函数 \_S\_substring 用来获取 \_\_base 表示的 rope 中从 \_\_start 到 \_\_endp1 之间的元素序列，但函数的返回值 \_RopeRep\* 类型的，这里要求返回的节点表示的 rope 中所包含的元素就正好是 \_\_base 表示的 rope 中从 \_\_start 到 \_\_endp1 之间的元素。
+
+令 \_\_len = \_\_base->\_M\_size，定义一个变量 \_\_adj\_endp1 和 一个常量 \_\_lazy\_threshold 等于 128 。如果 \_\_endp1 > \_\_len 且 start = 0(start 为 size\_t 类型不存在负数的情况) ，则直接返回 \_\_base，如果 \_\_endp1 > \_\_len 且 start > 0，则令 \_\_adj\_endp1 = \_\_len。如果 \_\_endp1 < \_\_len ，则直接令 \_\_adj\_endp1 == \_\_endp1 。
+
+如果当前 \_\_base 节点的类型为 \_S\_concat。令 \_\_left 为 \_\_base 的左子节点，令 \_\_right 为 \_\_base 的右子节点，\_\_left\_len = \_\_left->\_M\_size 。如果 \_\_adj\_endp1 <= \_\_left\_len，则说明 \_\_start 到 \_\_adj\_endp1 之间的所有节点都在左子树上，直接返回 \_S\_substring(\_\_left, \_\_start, \_\_endp1)，这里 \_\_endp1 和 \_\_adj\_endp1 相等。
+
+如果 \_\_start >= \_\_left\_len，则说明 \_\_start 到 \_\_adj\_endp1 之间的节点都在右子树上，直接返回 \_S\_substring(\_\_right, \_\_start - \_\_left\_len, \_\_adj\_endp1 - \_\_left\_len) 。
+
+如果上面的两种情况都不成立，即 \_\_start < \_\_left\_len < \_\_adj\_endp1，则说明 \_\_start 到 \_\_adj\_endp1 之间的节点既在左子树上有又在右子树上有。用 \_S\_substring(\_\_left, \_\_start, \_\_left\_len) 的节点初始化 \_Self\_destructr\_ptr 类型的节点(在定义了 \_\_GC 的情况下 \_Self\_destruct\_ptr 为 \_RopeRep\* 的类型别名) \_\_left\_result。用 \_S\_substring(\_\_right, 0, \_\_endp1 - \_\_left\_len) 的节点初始化 \_Self\_destruct\_ptr 类型的节点 \_\_right\_result，再调用 \_S\_concat 函数将 \_\_left\_result 和 \_\_right\_result 表示的子树拼接成一棵包含了以 \_\_left\_result 为根的子树中所有元素和以 \_\_right\_result 为根的子树中的所有元素的树，并将根节点存放在 \_\_result 中。
+
+如果当前 \_\_base 节点的类型为 \_S\_leaf ，令 \_\_result\_len 为 \_\_start 到 \_\_adj\_endp1 之间的距离，如果 \_\_result\_len > \_\_lazy\_threshold ，则跳到 lazy 根据 \_\_base 中的内容和 \_\_start 以及 \_\_adj\_endp1 的位置构造一个新的 \_S\_substringfn 类型的新节点。否则令 \_\_section 为当前节点 \_M\_data + \_\_start 所在的地址。然后用 \_\_section 和 \_\_result\_len 构造一个新的叶节点。
+
+如果当前节点的类型为 \_S\_substringfn，同样令 \_\_resutl\_len 为 \_\_start 到 \_\_adj\_endp1 之间的距离。如果 result\_len > \_\_lazy\_threshold 则用\_\_base 中的 \_M\_base 来构造一个新的 \_S\_substring 类型的节点，这里用 \_M\_base 来构造新节点是避免产生多层的 \_S\_substring 类型的节点。因为如果直接用 \_\_base 来构造一个 \_S\_substring 类型的节点 \_\_s 的话。则要获取 \_\_s 中的节点，需调用 \_\_s 中的 operator() 函数，而 \_\_s 中的 operator() 函数会调用 base (\_\_s->\_M\_base 指向 \_\_base) 中的 operator() 函数，而 base 中的 operator() 函数会调用 \_\_base->\_M\_base 的 operator() 函数。所以为了避免这种重复的调用，直接用 \_\_base->\_M\_base 来构造 \_S\_substring 节点则可以少一层调用。如果 \_\_result\_len <= \_\_lazy\_threshold ，则进入到下一个分支处理,将当前节点当成 \_S\_function 类型来处理。
+
+如果当前节点的类型为 \_S\_function，令 \_\_result\_len 为 \_\_start 到 \_\_adj\_endp1 之间的距离，如果 \_\_result\_len > \_\_lazy\_threshold ，则跳到 lazy 构造一个新的 substring 类型的新节点。否则申请一片能够容纳 \_S\_rounded\_up\_size(\_\_result\_len) 个元素的节点(为结束标记也分配了额外的节点)。然后将当前节点中从 \_\_start 位置开始长度为 \_\_result\_len 的元素序列读到从 \_\_section 开始的位置。并设置好结束标记。并用 section 的内容构造一个 \_S\_leaf 类型的新节点返回。
+
+如果在 switch 分支中跳到了 lazy ，则直接用 base, \_\_start, adj\_endp1 提供的信息构造一个 \_S\_substring 类型的新节点。
+
+	template <class _CharT, class _Alloc>
+	rope<_CharT,_Alloc>::_RopeRep*
+	rope<_CharT,_Alloc>::_S_substring(_RopeRep* __base, 
+				       size_t __start, size_t __endp1)
+	{
+	    if (0 == __base) return 0;
+	    size_t __len = __base->_M_size;
+	    size_t __adj_endp1;
+	    const size_t __lazy_threshold = 128;
+	    
+	    if (__endp1 >= __len) {
+		if (0 == __start) {
+		    __base->_M_ref_nonnil();
+		    return __base;
+		} else {
+		    __adj_endp1 = __len;
+		}
+	    } else {
+		__adj_endp1 = __endp1;
+	    }
+	    switch(__base->_M_tag) {
+		case _RopeRep::_S_concat:
+		    {
+			_RopeConcatenation* __c = (_RopeConcatenation*)__base;
+			_RopeRep* __left = __c->_M_left;
+			_RopeRep* __right = __c->_M_right;
+			size_t __left_len = __left->_M_size;
+			_RopeRep* __result;
+
+			if (__adj_endp1 <= __left_len) {
+			    return _S_substring(__left, __start, __endp1);
+			} else if (__start >= __left_len) {
+			    return _S_substring(__right, __start - __left_len,
+					  __adj_endp1 - __left_len);
+			}
+			_Self_destruct_ptr __left_result(
+			  _S_substring(__left, __start, __left_len));
+			_Self_destruct_ptr __right_result(
+			  _S_substring(__right, 0, __endp1 - __left_len));
+			__result = _S_concat(__left_result, __right_result);
+			return __result;
+		    }
+		case _RopeRep::_S_leaf:
+		    {
+			_RopeLeaf* __l = (_RopeLeaf*)__base;
+			_RopeLeaf* __result;
+			size_t __result_len;
+			if (__start >= __adj_endp1) return 0;
+			__result_len = __adj_endp1 - __start;
+			if (__result_len > __lazy_threshold) goto lazy;
+			    const _CharT* __section = __l->_M_data + __start;
+			    __result = _S_new_RopeLeaf(__section, __result_len,
+						  __base->get_allocator());
+			    __result->_M_c_string = 0;  // Not eos terminated.
+			return __result;
+		    }
+		case _RopeRep::_S_substringfn:
+		    // Avoid introducing multiple layers of substring nodes.
+		    {
+			_RopeSubstring* __old = (_RopeSubstring*)__base;
+			size_t __result_len;
+			if (__start >= __adj_endp1) return 0;
+			__result_len = __adj_endp1 - __start;
+			if (__result_len > __lazy_threshold) {
+			    _RopeSubstring* __result =
+				_S_new_RopeSubstring(__old->_M_base,
+						  __start + __old->_M_start,
+						  __adj_endp1 - __start,
+						  __base->get_allocator());
+			    return __result;
+
+			} // *** else fall through: ***
+		    }
+		case _RopeRep::_S_function:
+		    {
+			_RopeFunction* __f = (_RopeFunction*)__base;
+			_CharT* __section;
+			size_t __result_len;
+			if (__start >= __adj_endp1) return 0;
+			__result_len = __adj_endp1 - __start;
+
+			if (__result_len > __lazy_threshold) goto lazy;
+			__section = (_CharT*)
+				_Data_allocate(_S_rounded_up_size(__result_len));
+			__STL_TRY {
+			  (*(__f->_M_fn))(__start, __result_len, __section);
+			}
+			__STL_UNWIND(_RopeRep::__STL_FREE_STRING(
+			       __section, __result_len, __base->get_allocator()));
+			_S_cond_store_eos(__section[__result_len]);
+			return _S_new_RopeLeaf(__section, __result_len,
+					       __base->get_allocator());
+		    }
+	    }
+	    /*NOTREACHED*/
+	    __stl_assert(false);
+	  lazy:
+	    {
+		// Create substring node.
+		return _S_new_RopeSubstring(__base, __start, __adj_endp1 - __start,
+				       __base->get_allocator());
+	    }
+	}
+
+<div class="cut"></div>
+
+[STL 的 rope 分析（一）](../03/rope1.html)</br>
+[STL 的 rope 分析（二）](../03/rope2.html)</br>
+[STL 的 rope 分析（三）](../03/rope3.html)</br>
+[STL 的 rope 分析（四）](../03/rope4.html)</br>
+[STL 的 rope 分析（五）](../03/rope5.html)</br>
+[STL 的 rope 分析（六）](../03/rope6.html)</br>
+[STL 的 rope 分析（七）](../03/rope7.html)</br>

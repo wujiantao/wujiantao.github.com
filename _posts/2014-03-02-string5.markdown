@@ -1,0 +1,277 @@
+---
+title: STL 的 string 分析（五）
+layout: post
+key: 34d53c36-914a-400b-bc79-1b11de04a65f
+tags:
+  -string 
+  -STL 
+---
+
+函数 swap 用给定的 basic\_string \_\_s 与当前的 basic\_string 互相交换内容。
+
+	  void swap(basic_string& __s) {
+	    __STD::swap(_M_start, __s._M_start);
+	    __STD::swap(_M_finish, __s._M_finish);
+	    __STD::swap(_M_end_of_storage, __s._M_end_of_storage);
+	  }
+
+<div class="cut"></div>
+
+函数 c\_str 和 函数 data 返回 \_M\_start 所在的地址。
+
+	  const _CharT* c_str() const { return _M_start; }
+	  const _CharT* data()  const { return _M_start; }
+
+<div class="cut"></div>
+
+函数 find 用来判断 \_\_s 开始往后的 \_\_n 个元素组成的序列是否在当前 basic\_string 中 \_\_pos 开始往后的位置上出现。其中具体的搜索操作调用 stl\_algo.h 中的 search 函数来进行，search 函数的第五个实参为 \_Eq\_traits<\_Traits>的一个实例，它是一个二元的函数对象。用来判断当前 basic\_string 中的任一元素是否和 \_\_s 开始的序列中的任一元素相等。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	basic_string<_CharT,_Traits,_Alloc>::size_type
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::find(const _CharT* __s, size_type __pos, size_type __n) const 
+	{
+	  if (__pos + __n > size())
+	    return npos;
+	  else {
+	    const const_iterator __result =
+	      search(_M_start + __pos, _M_finish, 
+		     __s, __s + __n, _Eq_traits<_Traits>());
+	    return __result != _M_finish ? __result - begin() : npos;
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 find 用来查找给定值 \_\_c 是否在当前 basic\_string 中 \_\_pos开始往后的位置中出现。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	basic_string<_CharT,_Traits,_Alloc>::size_type
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::find(_CharT __c, size_type __pos) const 
+	{
+	  if (__pos >= size())
+	    return npos;
+	  else {
+	    const const_iterator __result =
+	      find_if(_M_start + __pos, _M_finish,
+		      bind2nd(_Eq_traits<_Traits>(), __c));
+	    return __result != _M_finish ? __result - begin() : npos;
+	  }
+	}    
+
+<div class="cut"></div>
+
+函数 find 用来查找给定 basic\_string \_\_s 是否在当前 basic\_string 中 \_\_pos 开始往后的位置中出现。
+
+	  size_type find(const basic_string& __s, size_type __pos = 0) const 
+	    { return find(__s.begin(), __pos, __s.size()); }
+
+<div class="cut"></div>
+
+函数 find 用来查找 \_\_s 开始到结束标记所在位置之间的元素序列是否在当前 basic\_string 中 \_\_pos 开始往后的位置上出现。
+
+	  size_type find(const _CharT* __s, size_type __pos = 0) const 
+	    { return find(__s, __pos, _Traits::length(__s)); }
+
+<div class="cut"></div>
+
+函数 rfind 判断从 \_\_s 开始往后的 \_\_n 个元素组成的序列是否出现在了当前 basic\_string 中 \_\_pos所在位置之前的位置上(如果出现匹配，只需要匹配的开始位置在 \_\_pos 所在位置之前)。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	basic_string<_CharT,_Traits,_Alloc>::size_type
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::rfind(const _CharT* __s, size_type __pos, size_type __n) const 
+	{
+	  const size_t __len = size();
+
+	  if (__n > __len)
+	    return npos;
+	  else if (__n == 0)
+	    return min(__len, __pos);
+	  else {
+	    const const_iterator __last = begin() + min(__len - __n, __pos) + __n;
+	    const const_iterator __result = find_end(begin(), __last,
+						   __s, __s + __n,
+						   _Eq_traits<_Traits>());
+	    return __result != __last ? __result - begin() : npos;
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 rfind 判断给定元素 \_\_c 是否出现在当前 basic\_string 中 \_\_pos 之前的位置。函数中通过设置反向迭代器调用 find\_if 来进行反向搜索。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	basic_string<_CharT,_Traits,_Alloc>::size_type
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::rfind(_CharT __c, size_type __pos) const 
+	{
+	  const size_type __len = size();
+
+	  if (__len < 1)
+	    return npos;
+	  else {
+	    const const_iterator __last = begin() + min(__len - 1, __pos) + 1;
+	    const_reverse_iterator __rresult =
+	      find_if(const_reverse_iterator(__last), rend(),
+		      bind2nd(_Eq_traits<_Traits>(), __c));
+	    return __rresult != rend() ? (__rresult.base() - 1) - begin() : npos;
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 rfind 用来判断给定 basic\_string 中的内容是否出现在当前 basic\_string 中\_\_pos 所在位置之前。
+
+	  size_type rfind(const basic_string& __s, size_type __pos = npos) const 
+	    { return rfind(__s.begin(), __pos, __s.size()); }
+
+<div class="cut"></div>
+
+函数 rfind 用来判断 \_\_s 开始到结束标记所在位置之间的元素序列是否出现在当前 basic\_string 中 \_\_pos 所在位置之前。
+
+	  size_type rfind(const _CharT* __s, size_type __pos = npos) const 
+	    { return rfind(__s, __pos, _Traits::length(__s)); }
+
+<div class="cut"></div>
+
+函数 find\_first\_of 用来查找当前 basic\_string 中从 \_\_pos开始往后的位置第一次出现属于 \_\_s 开始往后的 \_\_n 个元素组成的元素序列中的元素的位置。函数调用 stl\_algo.h 中的 find\_first\_of 来查找。如果找到则返回第一次出现的位置，否则返回 npos 。
+
+
+	template <class _CharT, class _Traits, class _Alloc>
+	basic_string<_CharT,_Traits,_Alloc>::size_type
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::find_first_of(const _CharT* __s, size_type __pos, size_type __n) const
+	{
+	  if (__pos >= size())
+	    return npos;
+	  else {
+	    const_iterator __result = __STD::find_first_of(begin() + __pos, end(),
+							   __s, __s + __n,
+							   _Eq_traits<_Traits>());
+	    return __result != _M_finish ? __result - begin() : npos;
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 find\_first\_of 用来查找当前 basic\_string 中 \_\_pos 开始往后的位置上第一次出现 \_\_s 中的元素的位置。通过调用上面定义的 find\_first\_of 函数进行查找。
+
+	  size_type find_first_of(const basic_string& __s, size_type __pos = 0) const 
+	    { return find_first_of(__s.begin(), __pos, __s.size()); }
+
+<div class="cut"></div>
+
+函数 find\_first\_of 用来查找当前 basic\_string 中 \_\_pos 往后的位置上第一次出现 \_\_s 中的元素的位置。
+
+	  size_type find_first_of(const _CharT* __s, size_type __pos = 0) const 
+	    { return find_first_of(__s, __pos, _Traits::length(__s)); }
+
+<div class="cut"></div>
+
+函数 find 查找当前 basic\_string 中出现字符 \_\_c 的位置。
+
+	  size_type find_first_of(_CharT __c, size_type __pos = 0) const 
+	    { return find(__c, __pos); }
+
+<div class="cut"></div>
+
+函数 find\_last\_of 用来查找从 \_\_pos 开始往前的位置上第一次出现 \_\_s 开始往后 \_\_n 个位置上的元素组成的序列中的元素的位置。通过设置 reverse\_iterator 使得迭代器迭代的方向由后往前，在调用 find\_first\_of 进行查找。
+
+
+	template <class _CharT, class _Traits, class _Alloc>
+	basic_string<_CharT,_Traits,_Alloc>::size_type
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::find_last_of(const _CharT* __s, size_type __pos, size_type __n) const
+	{
+	  const size_type __len = size();
+
+	  if (__len < 1)
+	    return npos;
+	  else {
+	    const const_iterator __last = _M_start + min(__len - 1, __pos) + 1;
+	    const const_reverse_iterator __rresult =
+	      __STD::find_first_of(const_reverse_iterator(__last), rend(),
+				   __s, __s + __n,
+				   _Eq_traits<_Traits>());
+	    return __rresult != rend() ? (__rresult.base() - 1) - _M_start : npos;
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 find\_last\_of 用来查找当前 basic\_string 中 \_\_pos 往前的位置上第一次出现 \_\_s 中的元素的位置。调用上面定义的 find\_last\_of 进行查找。
+
+	  size_type find_last_of(const basic_string& __s,
+				 size_type __pos = npos) const
+	    { return find_last_of(__s.begin(), __pos, __s.size()); }
+
+<div class="cut"></div>
+
+函数 find\_last\_of 查找当前 basic\_string 中 \_\_pos 往前的位置上第一次出现 \_\_s 中的元素的位置。
+
+	  size_type find_last_of(const _CharT* __s, size_type __pos = npos) const 
+	    { return find_last_of(__s, __pos, _Traits::length(__s)); }
+
+<div class="cut"></div>
+
+函数 find\_first\_not\_of 查找当前 basic\_string 中第一次出现不属于 \_\_s 开始往后 \_\_n 个位置组成的元素序列中的元素的位置。函数 find\_if 会从 \_M\_start + pos 开始逐个检测所在位置的元素是否满足 \_Not\_with\_traits<\_Traits>(s, s + n) 中的 operator() 函数。如果碰到一个满足的，则说明该位置的元素不在 s 到 s + n 之间。然后返回该位置。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	basic_string<_CharT,_Traits,_Alloc>::size_type
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::find_first_not_of(const _CharT* __s, size_type __pos, size_type __n) const
+	{
+	  if (__pos > size())
+	    return npos;
+	  else {
+	    const_iterator __result = find_if(_M_start + __pos, _M_finish,
+					_Not_within_traits<_Traits>(__s, __s + __n));
+	    return __result != _M_finish ? __result - _M_start : npos;
+	  }
+	}
+
+<div class="cut"></div>
+
+函数 find\_first\_not\_of 查找当前 basic\_string 中从 \_\_pos 开始往后的位置上第一次出现不属于 \_\_s 中的元素的位置。调用上面定义的 find\_first\_not\_of 进行查找。
+
+	  size_type find_first_not_of(const basic_string& __s, 
+				      size_type __pos = 0) const 
+	    { return find_first_not_of(__s.begin(), __pos, __s.size()); }
+
+<div class="cut"></div>
+
+函数 find\_first\_not\_of 用来查找当前 basic\_string 中 \_\_pos 开始往后的位置上第一次出现不属于 \_\_s 中的元素的位置。
+
+	  size_type find_first_not_of(const _CharT* __s, size_type __pos = 0) const 
+	    { return find_first_not_of(__s, __pos, _Traits::length(__s)); }
+
+<div class="cut"></div>
+
+函数 find\_first\_not\_of 用来查找当前 basic\_string 中 \_\_pos 开始往后的位置上第一次出现不为 \_\_c 的元素。find\_if 函数中会从 begin() + pos 开始逐个将所在位置上的元素作为 not1(bind2nd(\_Eq\_traits<\_Traits>)(), \_\_c) 返回实例的 operator 函数的实参，判断该位置上的元素是否不等于 \_\_c 。如果不等于 operator() 函数会返回 true 。
+
+	template <class _CharT, class _Traits, class _Alloc>
+	basic_string<_CharT,_Traits,_Alloc>::size_type
+	basic_string<_CharT,_Traits,_Alloc>
+	  ::find_first_not_of(_CharT __c, size_type __pos) const
+	{
+	  if (__pos > size())
+	    return npos;
+	  else {
+	    const_iterator __result
+	      = find_if(begin() + __pos, end(),
+			not1(bind2nd(_Eq_traits<_Traits>(), __c)));
+	    return __result != _M_finish ? __result - begin() : npos;
+	  }
+	}    
+
+
+<div class="cut"></div>
+
+[STL 的 string 分析（一）](../02/string1.html)</br>
+[STL 的 string 分析（二）](../02/string2.html)</br>
+[STL 的 string 分析（三）](../02/string3.html)</br>
+[STL 的 string 分析（四）](../02/string4.html)</br>
+[STL 的 string 分析（五）](../02/string5.html)</br>
+[STL 的 string 分析（六）](../02/string6.html)</br>

@@ -1,0 +1,351 @@
+---
+title: STL 的 rope 分析（七）
+layout: post
+key: ab7745fb-13e4-4a0a-8893-1dd1fbb4d176
+tags:
+  -rope 
+  -STL
+---
+
+\_S\_flatten 函数用来将用 \_\_r 表示的 rope 中的元素拷贝到 \_\_buffer 中，即获得 rope 的元素序列。其中函数的返回值为元素拷贝到 \_\_buffer 中后的截止地址。
+
+如果当前 \_\_r 节点的类型为 \_S\_concat ，则先将 \_\_r 左子树上的元素拷贝到 \_\_buffer 开始的地方，然后再将右子树上的元素拷贝到左子树的后面。如果 \_\_r 节点的类型为 \_S\_leaf ，则直接将 \_r 中 \_M\_data 的内容拷贝到 \_\_buffer 中，并且返回结束地址。
+
+如果当前 \_\_r 节点的类型为 \_S\_function 或者 \_S\_substringfn。则直接用 \_\_r 的 \_M\_fn 函数生成 \_\_r 节点中的元素，并将生成的元素放置到 \_\_buffer 开始的位置。返回结束地址 \_\_buffer + \_\_f->\_M\_size 。
+
+	template <class _CharT, class _Alloc>
+	_CharT*
+	rope<_CharT,_Alloc>::_S_flatten(_RopeRep* __r, _CharT* __buffer)
+	{
+	    if (0 == __r) return __buffer;
+	    switch(__r->_M_tag) {
+		case _RopeRep::_S_concat:
+		    {
+			_RopeConcatenation* __c = (_RopeConcatenation*)__r;
+			_RopeRep* __left = __c->_M_left;
+			_RopeRep* __right = __c->_M_right;
+			_CharT* __rest = _S_flatten(__left, __buffer);
+			return _S_flatten(__right, __rest);
+		    }
+		case _RopeRep::_S_leaf:
+		    {
+			_RopeLeaf* __l = (_RopeLeaf*)__r;
+			return copy_n(__l->_M_data, __l->_M_size, __buffer).second;
+		    }
+		case _RopeRep::_S_function:
+		case _RopeRep::_S_substringfn:
+		    // We dont yet do anything with substring nodes.
+		    // This needs to be fixed before ropefiles will work well.
+		    {
+			_RopeFunction* __f = (_RopeFunction*)__r;
+			(*(__f->_M_fn))(0, __f->_M_size, __buffer);
+			return __buffer + __f->_M_size;
+		    }
+		default:
+		    __stl_assert(false);
+		    /*NOTREACHED*/
+		    return 0;
+	    }
+	}
+
+<div class="cut"></div>
+
+####类模板 \_Rope\_flatten\_char\_consumer####
+
+类模板 \_Rope\_flatten\_char\_consumer 继承自 \_Rope\_char\_consumer<\_CharT> 。其内部定义了一个成员变量 \_M\_buf\_ptr。operator 函数中定义的操作是将指定位置 \_\_leaf 开始的长度为 \_\_len 的元素拷贝到 \_M\_buf\_ptr 开始的位置。同时修改 \_M\_buf\_ptr 的值以便后续的元素拷贝到当前元素的后面。
+
+	template<class _CharT>
+	class _Rope_flatten_char_consumer : public _Rope_char_consumer<_CharT> {
+	    private:
+	    _CharT* _M_buf_ptr;
+	    public:
+
+	    _Rope_flatten_char_consumer(_CharT* __buffer) {
+		_M_buf_ptr = __buffer;
+	    };
+	    ~_Rope_flatten_char_consumer() {}
+	    bool operator() (const _CharT* __leaf, size_t __n) {
+		uninitialized_copy_n(__leaf, __n, _M_buf_ptr);
+		_M_buf_ptr += __n;
+		return true;
+	    }
+	};
+
+<div class="cut"></div>
+
+\_S\_flatten 将 \_\_r 表示的 rope 中从 \_\_start 位置开始长度为 \_\_len 的元素序列拷贝到 \_\_buffer 中。函数中首先声明了一个 \_Rope\_flatten\_char\_consumer<\_CharT> 的实例 \_\_c，\_\_c 用 \_\_buffer 进行初始化，使得 \_\_c 中定义的操作就是将指定位置的元素复制到 \_\_buffer 开始的地方。然后调用 \_S\_apply\_to\_pieces(\_\_c, \_\_r, \_\_start, \_\_start + \_\_len) 使得将 \_\_r 表示的 rope 中从 \_\_start 开始到 \_\_start + \_\_len 之间的元素都应该 \_\_c.operator 中定义的操作(即复制到\_\_c.\_M\_buf\_ptr(初始时为 \_\_buffer) 开始的位置)。
+
+		template <class _CharT, class _Alloc>
+		_CharT*
+		rope<_CharT,_Alloc>::_S_flatten(_RopeRep* __r,
+				 size_t __start, size_t __len,
+				 _CharT* __buffer)
+		{
+		    _Rope_flatten_char_consumer<_CharT> __c(__buffer);
+		    _S_apply_to_pieces(__c, __r, __start, __start + __len);
+		    return(__buffer + __len);
+		}
+
+<div class="cut"></div>
+
+rope 中定义了一个长度为 \_S\_max\_rope\_depth + 1 的常量数组 \_S\_min\_len。其中 \_S\_min\_len[i] 的值为第 i + 2 个斐波那契数。即 \_S\_min\_len[0] = 1, \_S\_min\_len[1] = 2, 依次类推。
+
+	static const unsigned long 
+	_S_min_len[_RopeRep::_S_max_rope_depth + 1];
+
+<div class="cut"></div>
+
+函数 \_S\_is\_balanced 用来判断以给定节点为根的树是否平衡，判定当 \_\_r->\_M\_size>= \_S\_min\_len[\_\_r->\_M\_depth] 时则认为是平衡的，即深度为 \_M\_depth 的树至少要有 \_S\_min\_len[\_M\_depth] 个节点才认为是平衡的(这也是 avl 平衡树的要求)。
+
+	    static bool _S_is_balanced(_RopeRep* __r)
+		    { return (__r->_M_size >= _S_min_len[__r->_M_depth]); }
+
+<div class="cut"></div>
+
+函数 \_S\_is\_almost\_balanced 用来判断以给定节点为根的树是否是近似平衡的，判断当 \_M\_depth == 0 或者 \_\_r->\_M\_size >= \_S\_min\_len[\_M\_depth - 1] 时认为以 \_\_r 为根的树是近似平衡的。近似平衡的条件弱于平衡的条件。
+
+	static bool _S_is_almost_balanced(_RopeRep* __r)
+	    { return (__r->_M_depth == 0 ||
+		      __r->_M_size >= _S_min_len[__r->_M_depth - 1]); }
+
+<div class="cut"></div>
+
+函数 \_S\_is\_roughly\_balanced 判断以给定节点为根的树是否是大致平衡的，判定当 \_M\_depth <= 1 或者 \_\_r->\_M\_size >= \_S\_min\_len[\_\_r->\_M\_depth - 2] 时认为以 \_\_r 为根的树是大致平衡的。
+
+	static bool _S_is_roughly_balanced(_RopeRep* __r)
+	    { return (__r->_M_depth <= 1 ||
+		      __r->_M_size >= _S_min_len[__r->_M_depth - 2]); }
+
+<div class="cut"></div>
+
+函数 \_S\_concat\_and\_set\_balanced 调用 \_S\_concat 将 \_\_left 为根的树和 \_\_right 为根的树拼接成一棵树，并将根节点存放在 \_\_result 中，判断以 result 为根的树是否是平衡的，如果是，将 \_\_result->\_M\_is\_balanced 置为 true。返回 \_\_result 。
+
+	static _RopeRep* _S_concat_and_set_balanced(_RopeRep* __left,
+				 _RopeRep* __right)
+	{
+	    _RopeRep* __result = _S_concat(__left, __right);
+	    if (_S_is_balanced(__result)) __result->_M_is_balanced = true;
+	    return __result;
+	}
+
+<div class="cut"></div>
+
+函数 \_S\_add\_leaf\_to\_forest 用来一个 \_\_r 为根节点的树添加到 \_\_forsest 中，其中 \_\_forest 可以看成是一个指针数组，其每一个元素都是一个 \_RopeRep 类型的指针(实际调用是 \_\_forest 就是一个指针数组)。
+
+函数被调用之前有个前提，第一个是 \_\_r 为根的树是一棵平衡树，即满足 \_S\_is\_balanced(\_\_r) 。对于 \_\_forest 中的任何元素 \_\_forest[\_\_i]，\_\_forest[\_\_i] 要么为空，要么是一棵近似平衡的树(也可能是平衡的)，即满足 \_S\_is\_almost\_balanced(\_\_forest[\_\_i])。
+
+同时对于 \_\_forest[\_\_i] 中的元素，如果其不为空，则 \_\_forest[\_\_i]->\_M\_size >= \_S\_min\_len[\_\_i]，则 \_\_forest[\_\_i] 的深度不超过 \_\_i + 1。
+
+
+同时对与 \_\_forest 中的不为空的元素顺序也有规范，\_\_forest 中每个不为空的元素都代表了一棵子树。当前函数 \_S\_add\_leaf\_to\_forest 只是一个子程序，最后所有 \_\_forest 中不为空的元素要全部合并成一棵树。
+
+合并的过程中从 \_\_forest[0] 开始，前面的子树合并之后应该在后面的子树的右边，即如果 \_\_forest[0] 不为空，那么合并 \_\_forest 中的所有子树之后 \_\_forest[0] 应该处在最右边。而将 \_\_r 为根的子树插入到 \_\_forest 中后，要保证合并所有 \_\_forest 中的元素之后，\_\_r 为根的子树处在整棵树的最右边。
+
+即插入后如果以 \_\_r 为根的子树处在 \_\_forest[i] 为根的树上 (可能 \_\_r == \_\_forest[i] ，也可能 \_\_r 为 \_\_forest[i] 的子孙节点，如果 \_\_r 为 \_\_forest[i] 的子孙节点，那么 \_\_r 应该在以 \_\_forest[i] 为根的树的最右边)。那么 \_\_forsest[0...i - 1] 应该都为空，否则 \_\_r 为根的子树在合并了所有节点之后就不在最右边了。
+
+函数首先声明了一个两个 \_RopeRep 类型的指针，分别为 \_\_insertee 和 \_\_too\_tiny，其中 \_\_too\_tiny 初始化为空指针 。令 \_\_s = \_\_r->\_M\_size 。
+
+for 循环中当 \_\_s < \_S\_min\_len[\_\_i + 1] 时结束，当 \_\_s < \_S\_min\_len[i + 1] 时，因为 \_\_r 为平衡树，而且 \_\_s >= \_S\_min[i] (否则当循环到 \_\_i - 1 时就应退出了)。则 \_\_r 的深度应为 \_\_i。
+
+在循环结束之前 \_\_forest[0...\_\_i - 1] 之间的子树都被合并到了 \_\_too\_tiny 中。因为对于 0 <= \_\_j <= \_\_i - 1，如果 \_\_forest[\_\_j]不为空，则以 \_\_forest[\_\_j] 为根的树都是近似平衡树，且 \_\_forest[j] == \_M\_min\_len[\_\_j]，\_\_forest[\_\_j] 的深度不超过 \_\_j + 1。
+
+\_\_too\_tiny 合并了 \_\_forest[0...i - 1] 中的节点，合并过程中都是将 \_\_too\_tiny 作为右子节点。\_\_too\_tiny 中的节点深度最多为 \_\_i + 1，这可以用归纳法进行证明，假设 \_\_f 是从 0 开始 \_\_forest[\_\_f] 不为 0 的最小 \_\_f 。则\_\_too\_tiny 合并[0...\_\_f] 中的节点后 \_\_too\_tiny 的深度肯定不超过 \_\_f + 2(实际不超过 \_\_f + 1，为 \_\_forest[\_\_f] 的深度)。现在假定 \_\_too\_tiny 合并了 forest[0...j - 2] 中的元素深度不超过 \_\_j，因为 \_\_forest[\_\_j - 1] 的深度不超过 \_\_j，所以 \_\_too\_tiny 合并和 \_\_forest[0...j - 1] 中的元素之后深度肯定不超过 \_\_j + 1。所以 \_\_too\_tiny 合并了 \_\_forest[0...i - 1] 中元素之后深度不超过 \_\_i + 1。
+
+跳出循环之后，\_\_too\_tiny 的深度不超过 \_\_i + 1。然后将深度为 \_\_i 的平衡树 \_\_r 和 \_\_too\_tiny 进行合并得到 \_\_insertee。可以肯定 \_\_insertee 是一棵近似平衡的树。
+
+分两种情况分析，第一种当 \_\_forest[\_\_i - 1] 为空时，\_\_too\_tiny 合并了 \_\_forest[0...i - 1] 之后的深度应该不超过 \_\_i(和合并了 \_\_forest[0...i - 2] 是一样的)。两棵深度不超过 \_\_i 的子树合并，得到的深度为 \_\_i + 1。且同时合并得到的树包含的元素个数大于 \_S\_min\_len[i] ，因为 \_\_r 为根的树中的元素个数已经大于或者等于 \_S\_min\_len[i] 了。
+
+第二种情况当 \_\_forest[i - 1] 不为空时，\_\_too\_tiny 的深度不低于 \_\_i + 1。则合并了 \_\_too\_tiny 和 \_\_r 之后得到的树的深度不超过 \_\_i + 2。但由于 \_\_forest[\_\_i - 1] 不为空，则 \_\_too\_tiny->\_M\_size >= \_S\_min\_len[\_\_i - 1]，而 \_\_r->\_M\_size >= \_S\_min\_len[i]。则根据斐波那契数的性质，合并后得到的树包含的元素个数应大于或者等于 \_S\_min\_len[\_\_i + 1]。所以得到的树还是近似平衡的。
+
+对于第二个 for 循环，对于当前 \_\_i，循环过程中的循环不变式是 insertee 的深度要么为 \_\_i，要么为 \_\_i + 1 要么为 \_\_i + 2。首先进入条件时，insertee 是近似平衡树(也可能平衡)，条件得以满足(初始时 \_\_insertee 不可能为 \_\_i)。如果 \_\_insertee 为 \_\_i (不可能是初始时进入循环)，则 \_\_insertee 肯定为平衡树，否则前面 \_\_i - 1 时已经退出。此时如果 \_\_forest[\_\_i] 为空，则接下来会退出循环，如果 \_\_forest[\_\_i] 不为空，则得到一个深度为 \_\_i + 1 的平衡树，++i 后仍然能够满足。
+
+如果 \_\_insertee 的深度为 \_\_i + 1，如果 \_\_insertee 不平衡，\_\_forest[i] 非空，则得到一个深度为 \_\_i + 2 的近似平衡树。++i 后仍然满足，若 \_\_forest[i] 为空，则会退出循环。如果 \_\_inertee 为深度为 \_\_i + 1 且是平衡树，若 \_\_forset[\_\_i] 非空，得到一棵深度为 \_\_i + 2 的平衡树，++i 后仍然满足不变式。若 \_\_forest[\_\_i] 为空，++i 后仍然满足不变式。
+
+如果 \_\_insertee 的深度为 \_\_i + 2，且不平衡，若 \_\_forest[\_\_i] 非空，则得到一棵深度为 \_\_i + 3 的近似平衡树，++i 后循环不变式仍然得到满足，若 \_\_forest[\_\_i] 为空，++i 后循环不变式仍然得到满足。因此第二个 for 循环退出是能保证赋值给 \_\_forest[i] 的 \_\_insertee 是一棵近似平衡树。
+
+所以 \_S\_add\_leaf\_to\_forest 能保证初始时以 \_\_forest 中的所有不为空的元素为根的树都是近似平衡树，结束时所有以 \_\_forest 中不为空的元素为根的树都是近似平衡树，且 \_\_forest[0...\_\_i - 1] 为空。
+
+	template <class _CharT, class _Alloc>
+	void
+	rope<_CharT,_Alloc>::_S_add_leaf_to_forest(_RopeRep* __r, _RopeRep** __forest)
+	{
+	    _RopeRep* __insertee;   		// included in refcount
+	    _RopeRep* __too_tiny = 0;    	// included in refcount
+	    int __i;  				// forest[0..__i-1] is empty
+	    size_t __s = __r->_M_size;
+
+	    for (__i = 0; __s >= _S_min_len[__i+1]/* not this bucket */; ++__i) {
+		    //the biggest tree in forest probably be combined is  __forst[__i - 1],
+		    //when __s >= _S_min_len[__i] and __s < _s_min_len[i + 1]. the loop is over.
+		    //the __forest[i] has no chance to be combined. so the depth of __too_tiny
+		    //won't be larger than __i. because the depth of __r is __i at most(it's balanced).
+		    //the depth of Insertee won't be larger than __i + 1.
+		if (0 != __forest[__i]) {
+		    __too_tiny = _S_concat_and_set_balanced(__forest[__i], __too_tiny);
+		///    __forest[__i]->_M_unref_nonnil();
+		    __forest[__i] = 0;
+		}
+	    }
+	    {
+		__insertee = _S_concat_and_set_balanced(__too_tiny, __r);
+	    }
+	    // Too_tiny dead, and no longer included in refcount.
+	    // Insertee is live and included.
+	    __stl_assert(_S_is_almost_balanced(__insertee));
+	    __stl_assert(__insertee->_M_depth <= __r->_M_depth + 1);
+	    for (;; ++__i) {
+		if (0 != __forest[__i]) {
+		    __insertee = _S_concat_and_set_balanced(__forest[__i], __insertee);
+		    ///__forest[__i]->_M_unref_nonnil();
+		    __forest[__i] = 0;
+		    __stl_assert(_S_is_almost_balanced(__insertee));
+		}
+		__stl_assert(_S_min_len[__i] <= __insertee->_M_size);
+		__stl_assert(__forest[__i] == 0);
+		if (__i == _RopeRep::_S_max_rope_depth || 
+		      __insertee->_M_size < _S_min_len[__i+1]) {
+		    __forest[__i] = __insertee;
+		    // refcount is OK since __insertee is now dead.
+		    return;
+		}
+	    }
+	}
+
+<div class="cut"></div>
+
+函数将 \_\_r 插入到 \_\_forest 中。如果 \_\_r 为平衡树，则直接将 \_\_r 插入到 \_\_forest 中，并且插入前和插入后以 \_\_forest 中的非空元素为根的树是近似平衡树，如果 \_\_r 不为平衡树，则先将左子树插入到 \_\_forest 再将 \_\_r 的右子树插入到 \_\_forest(插入的顺序不能颠倒，否则最后合并是元素的顺序就会颠倒)。
+
+	template <class _CharT, class _Alloc>
+	void
+	rope<_CharT,_Alloc>::_S_add_to_forest(_RopeRep* __r, _RopeRep** __forest)
+	{
+	    if (__r->_M_is_balanced) {
+	    _S_add_leaf_to_forest(__r, __forest);
+	    return;
+	    }
+	    __stl_assert(__r->_M_tag == _RopeRep::_S_concat);
+	    {
+	    _RopeConcatenation* __c = (_RopeConcatenation*)__r;
+
+	    _S_add_to_forest(__c->_M_left, __forest);
+	    _S_add_to_forest(__c->_M_right, __forest);
+	    }
+	}
+
+<div class="cut"></div>
+
+函数 \_S\_balance 用来调整以给定节点 \_\_r 为根的树，\_S\_balance 能保证调整后的树至少是满足 \_S\_roughly\_balanced 的。
+
+函数声明一个指针数组 \_\_forest ，并将其中的所有元素都初始化为 0 。然后调用 \_S\_add\_to\_forest(\_\_r, \_\_forest) 将 \_\_r 中的子树插入到 \_\_forest 中，使得函数退出之后，以\_\_forest 中的每个非空元素为根的树都是近似平衡的。而且将 \_\_forest 中的元素从左往右进行合并(合并时应该使 \_\_forest 中前面的元素处在合并后的树右边，后面的元素处在合并后的树的左边) 能还原出 \_\_r 中的所有元素。调用一个 for 循环对 \_\_forest 中的所有元素进行合并，每次合并时，将新加入的节点作为左子节点。最后合并的结果保存在 \_\_result 中。但如果 \_\_result\_depth 超出了 \_S\_max\_rope\_depth 则抛出一个异常。
+
+	template <class _CharT, class _Alloc>
+	rope<_CharT,_Alloc>::_RopeRep*
+	rope<_CharT,_Alloc>::_S_balance(_RopeRep* __r)
+	{
+	    _RopeRep* __forest[_RopeRep::_S_max_rope_depth + 1];
+	    _RopeRep* __result = 0;
+	    int __i;
+	    // Invariant:
+	    // The concatenation of forest in descending order is equal to __r.
+	    // __forest[__i]._M_size >= _S_min_len[__i]
+	    // __forest[__i]._M_depth = __i
+	    // References from forest are included in refcount.
+
+	    for (__i = 0; __i <= _RopeRep::_S_max_rope_depth; ++__i) 
+	      __forest[__i] = 0;
+	    __STL_TRY {
+	      _S_add_to_forest(__r, __forest);
+	      for (__i = 0; __i <= _RopeRep::_S_max_rope_depth; ++__i) 
+		if (0 != __forest[__i]) {
+		  __result = _S_concat(__forest[__i], __result);
+		__forest[__i]->_M_unref_nonnil();
+	#	if !defined(__GC) && defined(__STL_USE_EXCEPTIONS)
+		  __forest[__i] = 0;
+	#	endif
+	      }
+	    }
+	    __STL_UNWIND(for(__i = 0; __i <= _RopeRep::_S_max_rope_depth; __i++)
+			 _S_unref(__forest[__i]))
+	    if (__result->_M_depth > _RopeRep::_S_max_rope_depth) {
+	#     ifdef __STL_USE_EXCEPTIONS
+		__STL_THROW(length_error("rope too long"));
+	#     else
+		abort();
+	#     endif
+	    }
+	    return(__result);
+	}
+
+<div class="cut"></div>
+
+函数 \_S\_dump 用来输出 \_\_r 表示的整个 rope 的信息。其中当前函数要求 \_CharT 用 char 来进行实例化。
+
+如果 \_\_r 节点为 \_S\_concat 类型，则将当前节点的类型，地址，深度，大小，是否平衡的信息输出，并递归的对左子节点和右子节点分别调用 \_S\_dump 函数，同时将用于缩进的实参加 2 。
+
+如果当前节点不为 \_S\_concat 类型，即为 rope 的叶节点(\_S\_leaf, \_S\_function, \_S\_substring 三种类型)。首先将节点的类型，地址，深度，大小信息进行输出。如果 \_Rope 中的元素类型为基本字符类型(char 或者 wchar\_t) 则获取该节点中的前 40 个字符，如果节点中字符个数小于 40 则全部取出，然后输出获取到的内容。
+
+	template <class _CharT, class _Alloc>
+	void
+	rope<_CharT,_Alloc>::_S_dump(_RopeRep* __r, int __indent)
+	{
+	    for (int __i = 0; __i < __indent; __i++) putchar(' ');
+	    if (0 == __r) {
+		printf("NULL\n"); return;
+	    }
+	    if (_RopeRep::_S_concat == __r->_M_tag) {
+		_RopeConcatenation* __c = (_RopeConcatenation*)__r;
+		_RopeRep* __left = __c->_M_left;
+		_RopeRep* __right = __c->_M_right;
+
+		  printf("Concatenation %p (depth = %d, len = %ld, %s balanced)\n",
+		    __r, __r->_M_depth, __r->_M_size, __r->_M_is_balanced? "" : "not");
+		_S_dump(__left, __indent + 2);
+		_S_dump(__right, __indent + 2);
+		return;
+	    } else {
+		char* __kind;
+
+		switch (__r->_M_tag) {
+		    case _RopeRep::_S_leaf:
+			__kind = "Leaf";
+			break;
+		    case _RopeRep::_S_function:
+			__kind = "Function";
+			break;
+		    case _RopeRep::_S_substringfn:
+			__kind = "Function representing substring";
+			break;
+		    default:
+			__kind = "(corrupted kind field!)";
+		}
+		  printf("%s %p (depth = %d, len = %ld) ",
+			 __kind, __r, __r->_M_depth, __r->_M_size);
+		if (_S_is_one_byte_char_type((_CharT*)0)) {
+		    const int __max_len = 40;
+		    _Self_destruct_ptr __prefix(_S_substring(__r, 0, __max_len));
+		    _CharT __buffer[__max_len + 1];
+		    bool __too_big = __r->_M_size > __prefix->_M_size;
+
+		    _S_flatten(__prefix, __buffer);
+		    __buffer[__prefix->_M_size] = _S_eos((_CharT*)0); 
+		    printf("%s%s\n", 
+			   (char*)__buffer, __too_big? "...\n" : "\n");
+		} else {
+		    printf("\n");
+		}
+	    }
+	}
+
+<div class="cut"></div>
+
+rope 中定义了大量的函数，如构造函数，append 函数，insert 函数，erase 函数，replace 函数 copy 函数，find 函数，c\_str 函数，substr 函数，operator[] 函数等等，这些函数的实现都是通过调用之前定义的函数进行实现，这里不再详述了。
+
+<div class="cut"></div>
+
+[STL 的 rope 分析（一）](../03/rope1.html)</br>
+[STL 的 rope 分析（二）](../03/rope2.html)</br>
+[STL 的 rope 分析（三）](../03/rope3.html)</br>
+[STL 的 rope 分析（四）](../03/rope4.html)</br>
+[STL 的 rope 分析（五）](../03/rope5.html)</br>
+[STL 的 rope 分析（六）](../03/rope6.html)</br>
+[STL 的 rope 分析（七）](../03/rope7.html)</br>

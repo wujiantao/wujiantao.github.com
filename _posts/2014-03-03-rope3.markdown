@@ -1,0 +1,344 @@
+---
+title: STL 的 rope 分析（三）
+layout: post
+key: 2e76f5e7-f15d-495f-84a8-044371646ac5
+tags:
+  -rope 
+  -STL
+---
+####类模板 \_Rope\_iterator\_base####
+
+\_Rope\_iterator\_base 作为 rope 中迭代器类的基类，迭代器类中的大部分操作和成员都在 \_Rope\_iterator\_base 中进行定义。它继承自 random\_access\_iterator，并将 rope 作为它的友元类。
+
+	template<class _CharT, class _Alloc>
+	class _Rope_iterator_base
+	  : public random_access_iterator<_CharT, ptrdiff_t> {
+	    friend class rope<_CharT,_Alloc>;
+
+<div class="cut"></div>
+
+\_Rope\_iterator\_base 中首先定义了两个枚举变量。\_S\_path\_cache\_len 和 \_S\_iterator\_buf\_len 被用来作为常量值。
+
+	    enum { _S_path_cache_len = 4 }; // Must be <= 9.
+	    enum { _S_iterator_buf_len = 15 };
+
+<div class="cut"></div>
+
+定义三个成员变量，其中 \_M\_current\_pos 表示当前迭代器指示的索引值在整个 rope 中的位置，\_M\_root 用来表示整个 rope，其中 \_RopeRep 为 \_Rope\_RopeRep<\_CharT, \_Alloc> 的类型别名。\_M\_leaf\_pos 用来表示当前迭代器所指示的元素所在的节点的初始位置(当前节点中第一个元素所处的位置)在整个 rope 中所处的位置(整个 rope 中最左边的节点的初始位置为 0，最右边的一个节点的最后一个元素所处的位置为 \_M\_root->size - 1)。
+
+	    size_t _M_current_pos;
+	    _RopeRep* _M_root;     // The whole rope.
+	    size_t _M_leaf_pos;    // Starting position for current leaf
+
+<div class="cut"></div>
+
+\_M\_buf\_start, \_M\_buf\_ptr, \_M\_buf\_end 和 \_M\_tmp\_buf 共同组成迭代器的一个缓冲区，\_M\_buf\_start 表示缓冲区的起始位置，\_M\_buf\_ptr 表示当前迭代器索引的元素在缓冲区中的位置，只有当 \_M\_buf\_ptr 不为 0 时表示缓冲区中的内容是有效的，否则表示当前缓冲区的内容不可用，需要在适当的时候重新计算更新缓冲区，\_M\_buf\_end 表示缓冲区的结束位置。
+
+\_M\_tmp\_buf 在节点类型为 \_S\_function 或者 \_S\_substringfn 时被使用，因为这两中类型的节点都不存储内容，只是在需要时通过它的生成函数生成内容，为了避免每次都重新生成，\_M\_tmp\_buf将由该节点的生成函数生成的部分内容存储于其中，并通过\_M\_buf\_start 和 \_M\_buf\_end 限定 \_M\_tmp\_buf 上哪一部分是当前迭代器的缓冲区。设置缓冲区的好处就是迭代器移动时，当移动之后迭代器索引的内容没有超出缓冲区的范围，只需修改 \_M\_current\_pos 和 \_M\_buf\_ptr 的值。
+
+	    __GC_CONST _CharT* _M_buf_start;
+	    __GC_CONST _CharT* _M_buf_ptr;
+	    __GC_CONST _CharT* _M_buf_end;
+	    _CharT _M_tmp_buf[_S_iterator_buf_len];
+
+<div class="cut"></div>
+
+从迭代器索引的元素所在的叶节点往根节点回溯最先遇到的 \_M\_leaf\_index + 1 个节点存储在 \_M\_path\_end 中，其中 \_M\_path\_end[\_M\_leaf\_index] 表示迭代器索引的元素所在的叶节点。\_M\_path\_end[\_M\_leaf\_index - 1] 为迭代器索引元素所在的叶节点的父节点。依次往上进行回溯和存储。
+
+	    const _RopeRep* _M_path_end[_S_path_cache_len];
+	    int _M_leaf_index;     // Last valid __pos in path_end;
+				// _M_path_end[0] ... _M_path_end[leaf_index-1]
+
+<div class="cut"></div>
+
+\_M\_path\_directions 存储的是 \_M\_path\_end 中节点的行进路径，当节点 \_M\_path\_end[\_M\_leaf\_index - i] 是节点 \_M\_path\_end[\_M\_leaf\_index - i - 1] 的右子节点时，(\_M\_path\_directions >> i) & 1 == 1，也即当 \_M\_path\_direction 的最低位为 1 时。M\_path\_end[\_M\_leaf\_index] 为 \_M\_path\_end[\_M\_leaf\_index - 1] 的右子节点。当 (\_M\_path\_direction >> (\_M\_leaf\_index - 1)) & 1 == 1 是 \_M\_path\_end[1] 是 \_M\_path\_end[0] 的右子节点。
+
+	    unsigned char _M_path_directions;
+
+<div class="cut"></div>
+
+函数 _S_setbuf 用来设置一个给定迭代器的缓冲区。因为 rope 中只有 _S_leaf, _S_function, _S_substringfn 三种类型的节点中有元素，所以迭代器索引的元素所在的节点也只可能在这三种类型中。
+
+函数首先将迭代器 \_\_x 索引的元素所在的节点存储在 leaf 中，令 \_leaf\_pos 为 leaf 节点中首元素在整个 rope 中的位置(x.\_M\_leaf\_pos)，令 pos 为迭代器索引的元素在整个 rope 中的位置(x.\_M\_current\_pos)。
+
+如果 left 为 \_S\_leaf 类型的节点，则直接将 \_M\_buf\_start 设置成当前节点数据域的起始地址，即 \_M\_data 所在的位置。然后 \_M\_buf\_ptr 为 \_M\_buf\_start + pos - \_\_leaf\_pos, \_M\_buf\_end 为 \_M\_buf\_start + leaf->\_M\_size。
+
+如果 leaf 为 \_S\_function 或者 \_S\_substringfn 类型的节点，则首先设置缓冲区的 \_\_len (不超过 \_S\_iterator\_buf\_len)，同时设置缓冲区中的内容在节点中哪个位置开始，将该位置为 \_\_buf\_start\_pos 中，则 buf\_start\_pos 应该在 \_\_leaf\_pos 和 \_\_pos 之间，同时 \_\_buf\_start\_pos + \_\_len 应小于 \_\_pos ，否则当前缓冲区中没有迭代器所索引的元素，同时 \_\_buf\_start\_pos + len 要小于 leaf\_pos + leaf->\_M\_size ，否则缓冲区超出了当前节点的范围。
+
+设置好 \_\_buf\_start\_pos 和 \_\_len 之后，将 leaf 节点中从 \_\_buf\_start\_pos - leaf\_pos 位置开始，长度为 \_\_len 的内容读到 \_M\_tmp\_buf 中，然后将 \_M\_start 设置为 \_M\_tmp\_buf ，将 \_M\_buf\_ptr 设置为 \_M\_tmp\_buf + (\_\_pos - \_\_buf\_start\_pos), 将 \_M\_buf\_end 设置为 \_M\_tmp\_buf + \_\_len。
+
+	template <class _CharT, class _Alloc>
+	void _Rope_iterator_base<_CharT,_Alloc>::_S_setbuf( 
+	  _Rope_iterator_base<_CharT,_Alloc>& __x)
+	{
+	    const _RopeRep* __leaf = __x._M_path_end[__x._M_leaf_index];
+	    size_t __leaf_pos = __x._M_leaf_pos;
+	    size_t __pos = __x._M_current_pos;
+
+	    switch(__leaf->_M_tag) {
+		case _RopeRep::_S_leaf:
+		    __x._M_buf_start = 
+		      ((_Rope_RopeLeaf<_CharT,_Alloc>*)__leaf)->_M_data;
+		    __x._M_buf_ptr = __x._M_buf_start + (__pos - __leaf_pos);
+		    __x._M_buf_end = __x._M_buf_start + __leaf->_M_size;
+		    break;
+		case _RopeRep::_S_function:
+		case _RopeRep::_S_substringfn:
+		    {
+			size_t __len = _S_iterator_buf_len;
+			size_t __buf_start_pos = __leaf_pos;
+			size_t __leaf_end = __leaf_pos + __leaf->_M_size;
+			char_producer<_CharT>* __fn =
+				((_Rope_RopeFunction<_CharT,_Alloc>*)__leaf)->_M_fn;
+
+			if (__buf_start_pos + __len <= __pos) {
+			    __buf_start_pos = __pos - __len/4;
+			    if (__buf_start_pos + __len > __leaf_end) {
+				__buf_start_pos = __leaf_end - __len;
+			    }
+			}
+			if (__buf_start_pos + __len > __leaf_end) {
+			    __len = __leaf_end - __buf_start_pos;
+			}
+			(*__fn)(__buf_start_pos - __leaf_pos, __len, __x._M_tmp_buf);
+			__x._M_buf_ptr = __x._M_tmp_buf + (__pos - __buf_start_pos);
+			__x._M_buf_start = __x._M_tmp_buf;
+			__x._M_buf_end = __x._M_tmp_buf + __len;
+		    }
+		    break;
+		default:
+		    __stl_assert(0);
+	    }
+	}
+
+<div class="cut"></div>
+
+函数 \_S\_setcache 用来设置指定迭代器中的路径和缓冲区，需要迭代器中事先设置的是 \_M\_root 和 \_M\_current\_pos ，即整个 rope 和迭代器所索引的元素在整个 rope 中的位置。
+
+函数定义了一系列的变量，其中 \_\_path 用来记录搜索过程中经过的节点，\_\_curr\_rope 用于记录循环中当前遍历到节点，\_\_curr\_depth 用来记录当前遍历到的节点的深度， \_\_curr\_start\_pos 用来记录当前遍历到的节点中的首元素在整个 rope 中的位置， \_\_pos 用来表示迭代器索引元素在整个 rope 中的位置， dirns 用来记录搜索的路径
+
+\_\_curr\_rope 从根节点开始，如果根节点的 \_M\_c\_string 不为 0，则将其看成一个 \_S\_leaf 类型的节点，它的 \_M\_c\_string 和 \_M\_data 指向相同的位置，根据 \_M\_c\_string 的位置设置好迭代器中的成员值。
+
+否则进行循环，将当前节点记录到 \_M\_path 中，如果当前 \_\_curr\_rope 的类型为 \_S\_concat，令 \_\_left 为当前 \_\_curr\_rope 的左子节点，令 \_\_left\_len 为左子树中的元素个数，dirns <<= 1。如果 pos >= \_\_curr\_start\_pos + \_\_left\_len，则说明 rope 中第 \_\_pos 个元素在右子树上，则 \_\_dirns |= 1, \_\_curr\_rope 更新为其右子节点， \_\_curr\_start\_pos += \_\_left\_len。如果 \_\_pos < \_\_curr\_start\_pos + \_\_left\_len，则说明第 \_\_pos 个节点在左子树上，更新 \_\_curr\_rope 为其左子节点。
+
+如果 \_\_curr\_rope 的类型为 \_S\_leaf, \_S\_function 或者 \_S\_substringfn ，则令 迭代器的 \_M\_leaf\_pos 为 \_\_curr\_start\_pos。保留 \_\_path 中从 \_\_curr\_depth 位置往前的 \_S\_path\_cache\_len 个节点，并更新 \_M\_leaf\_index 和 \_M\_path\_directions 的值。因为迭代器中的信息已经足够调用 \_S\_setbuf 来设置缓冲区信息了，然后调用 \_S\_setbuf 来设置缓冲区。
+
+	template <class _CharT, class _Alloc>
+	void _Rope_iterator_base<_CharT,_Alloc>::_S_setcache
+	(_Rope_iterator_base<_CharT,_Alloc>& __x)
+	{
+	    const _RopeRep* __path[_RopeRep::_S_max_rope_depth+1];
+	    const _RopeRep* __curr_rope;
+	    int __curr_depth = -1;  /* index into path    */
+	    size_t __curr_start_pos = 0;
+	    size_t __pos = __x._M_current_pos;
+	    unsigned char __dirns = 0; // Bit vector marking right turns in the path
+
+	    __stl_assert(__pos <= __x._M_root->_M_size);
+	    if (__pos >= __x._M_root->_M_size) {
+		__x._M_buf_ptr = 0;
+		return;
+	    }
+	    __curr_rope = __x._M_root;
+	    if (0 != __curr_rope->_M_c_string) {
+		/* Treat the root as a leaf. */
+		__x._M_buf_start = __curr_rope->_M_c_string;
+		__x._M_buf_end = __curr_rope->_M_c_string + __curr_rope->_M_size;
+		__x._M_buf_ptr = __curr_rope->_M_c_string + __pos;
+		__x._M_path_end[0] = __curr_rope;
+		__x._M_leaf_index = 0;
+		__x._M_leaf_pos = 0;
+		return;
+	    }
+	    for(;;) {
+		++__curr_depth;
+		__stl_assert(__curr_depth <= _RopeRep::_S_max_rope_depth);
+		__path[__curr_depth] = __curr_rope;
+		switch(__curr_rope->_M_tag) {
+		  case _RopeRep::_S_leaf:
+		  case _RopeRep::_S_function:
+		  case _RopeRep::_S_substringfn:
+		    __x._M_leaf_pos = __curr_start_pos;
+		    goto done;
+		  case _RopeRep::_S_concat:
+		    {
+			_Rope_RopeConcatenation<_CharT,_Alloc>* __c =
+				(_Rope_RopeConcatenation<_CharT,_Alloc>*)__curr_rope;
+			_RopeRep* __left = __c->_M_left;
+			size_t __left_len = __left->_M_size;
+			
+			__dirns <<= 1;
+			if (__pos >= __curr_start_pos + __left_len) {
+			    __dirns |= 1;
+			    __curr_rope = __c->_M_right;
+			    __curr_start_pos += __left_len;
+			} else {
+			    __curr_rope = __left;
+			}
+		    }
+		    break;
+		}
+	    }
+	  done:
+	    // Copy last section of path into _M_path_end.
+	      {
+		int __i = -1;
+		int __j = __curr_depth + 1 - _S_path_cache_len;
+
+		if (__j < 0) __j = 0;
+		while (__j <= __curr_depth) {
+		    __x._M_path_end[++__i] = __path[__j++];
+		}
+		__x._M_leaf_index = __i;
+	      }
+	      __x._M_path_directions = __dirns;
+	      _S_setbuf(__x);
+	}
+
+<div class="cut"></div>
+
+
+函数 \_Setcache\_for\_incr 用来为当前迭代器往后移动一个位置之后设置新的 cache。函数中设置了一系列变量，其中\_\_current\_index = x.\_M\_leaf\_index，用来记录回溯的节点在 \_M\_path\_end 中所处的位置。 \_\_current\_node 表示迭代器索引元素所在的叶节点。\_\_len 表示 \_\_current\_node 中的所含有的节点数，\_\_node\_start\_pos 表示 \_\_current\_node 中的首元素在整个 rope 中的位置， \_\_dirns 用来记录 \_M\_path\_end 中节点的路径。在调用函数之前迭代器的 \_M\_current\_pos 已经进行了调整(加 1)。如果 \_M\_current\_pos - \_\_node\_start\_pos < \_\_len ，则说明索引的下一个元素还在当前节点，则直接调用 \_S\_setbuf 设置新的缓冲区(这里之所以要设置新的缓冲区，是因为缓冲区中已经没有迭代器需要索引的元素了，否则不会调用 \_S\_setcache\_for\_incr 函数)。
+
+否则要求 \_\_node\_start\_pos + \_\_len == x.\_M\_current.pos。并一直往上回溯，直到遇到一个祖先节点使得当前节点在该祖先节点的左子树上或者回溯的高度超过了 \_M\_leaf\_index，即 \_\_current\_index < 0。并且在回溯过程中不断更新 \_\_node\_start\_pos 和 dirns 的值。
+
+如果循环结束后 \_\_current\_index < 0，则需要用 \_S\_setcache 重新为迭代器设置 cache 。否则说明找到了一个祖先节点，使得迭代器移动之前(第 \_M\_current\_pos - 1 个元素)索引的元素在它的左子树上，而迭代器的下一个节点(第 \_M\_current\_pos 个元素)所在的节点应该该祖先节点的右子树的最左节点上。更新 \_\_node\_start\_pos ，在 \_M\_path\_end 中第 \_\_current\_index 之后第一个节点应该是其父节点的右子节点，其他往后的节点都应该是其父节点的左子节点。用一个 while 循环更新 \_M\_path\_end 和 dirns 的值，直到遇到叶节点。 设置好迭代器的相关参数，然后调用 \_S\_setbuf 更新迭代器。
+
+	template <class _CharT, class _Alloc>
+	void _Rope_iterator_base<_CharT,_Alloc>::_S_setcache_for_incr
+	(_Rope_iterator_base<_CharT,_Alloc>& __x)
+	{
+	    int __current_index = __x._M_leaf_index;
+	    const _RopeRep* __current_node = __x._M_path_end[__current_index];
+	    size_t __len = __current_node->_M_size;
+	    size_t __node_start_pos = __x._M_leaf_pos;
+	    unsigned char __dirns = __x._M_path_directions;
+	    _Rope_RopeConcatenation<_CharT,_Alloc>* __c;
+
+	    __stl_assert(__x._M_current_pos <= __x._M_root->_M_size);
+	    if (__x._M_current_pos - __node_start_pos < __len) {
+		/* More stuff in this leaf, we just didn't cache it. */
+		_S_setbuf(__x);
+		return;
+	    }
+	    __stl_assert(__node_start_pos + __len == __x._M_current_pos);
+	    //  node_start_pos is starting position of last_node.
+	    while (--__current_index >= 0) {
+		if (!(__dirns & 1) /* Path turned left */) 
+		  break;
+		__current_node = __x._M_path_end[__current_index];
+		__c = (_Rope_RopeConcatenation<_CharT,_Alloc>*)__current_node;
+		// Otherwise we were in the right child.  Thus we should pop
+		// the concatenation node.
+		__node_start_pos -= __c->_M_left->_M_size;
+		__dirns >>= 1;
+	    }
+	    if (__current_index < 0) {
+		// We underflowed the cache. Punt.
+		_S_setcache(__x);
+		return;
+	    }
+	    __current_node = __x._M_path_end[__current_index];
+	    __c = (_Rope_RopeConcatenation<_CharT,_Alloc>*)__current_node;
+	    // current_node is a concatenation node.  We are positioned on the first
+	    // character in its right child.
+	    // node_start_pos is starting position of current_node.
+	    __node_start_pos += __c->_M_left->_M_size;
+	    __current_node = __c->_M_right;
+	    __x._M_path_end[++__current_index] = __current_node;
+	    __dirns |= 1;
+	    while (_RopeRep::_S_concat == __current_node->_M_tag) {
+		++__current_index;
+		if (_S_path_cache_len == __current_index) {
+		    int __i;
+		    for (__i = 0; __i < _S_path_cache_len-1; __i++) {
+			__x._M_path_end[__i] = __x._M_path_end[__i+1];
+		    }
+		    --__current_index;
+		}
+		__current_node =
+		    ((_Rope_RopeConcatenation<_CharT,_Alloc>*)__current_node)->_M_left;
+		__x._M_path_end[__current_index] = __current_node;
+		__dirns <<= 1;
+		// node_start_pos is unchanged.
+	    }
+	    __x._M_leaf_index = __current_index;
+	    __x._M_leaf_pos = __node_start_pos;
+	    __x._M_path_directions = __dirns;
+	    _S_setbuf(__x);
+	}
+
+<div class="cut"></div>
+
+函数 \_M\_incr 用来将迭代器完后移动 \_\_n 个位置，函数首先更新 \_M\_current\_pos 的值，然后判断 \_M\_buf\_ptr 是否为 0 ，以检测当前缓冲区是否有效，然后查看当前缓冲区中是否还有往后 \_\_n 个位置的元素，如果有，则只需更新 \_M\_buf\_ptr，否则如果 刚好超出当前缓冲区，则调用 \_S\_setcache\_for\_incr。否则将 \_M\_buf\_ptr 设置为 0，令当前缓冲区为无效缓冲区。
+
+	template <class _CharT, class _Alloc>
+	void _Rope_iterator_base<_CharT,_Alloc>::_M_incr(size_t __n) {
+	    _M_current_pos += __n;
+	    if (0 != _M_buf_ptr) {
+		size_t __chars_left = _M_buf_end - _M_buf_ptr;
+		if (__chars_left > __n) {
+		    _M_buf_ptr += __n;
+		} else if (__chars_left == __n) {
+		    _M_buf_ptr += __n;
+		    _S_setcache_for_incr(*this);
+		} else {
+		    _M_buf_ptr = 0;
+		}
+	    }
+	}
+
+<div class="cut"></div>
+
+函数 \_M\_decr 将当前迭代器往前移动 \_\_n 个位置，如果往前移动 \_\_n 个位置后索引的元素仍在缓冲区，则直接修改 \_M\_buf\_ptr 的值。否则令 \_M\_buf\_ptr 为 0 ，将缓冲区置为无效缓冲区。
+
+	template <class _CharT, class _Alloc>
+	void _Rope_iterator_base<_CharT,_Alloc>::_M_decr(size_t __n) {
+	    if (0 != _M_buf_ptr) {
+		size_t __chars_left = _M_buf_ptr - _M_buf_start;
+		if (__chars_left >= __n) {
+		    _M_buf_ptr -= __n;
+		} else {
+		    _M_buf_ptr = 0;
+		}
+	    }
+	    _M_current_pos -= __n;
+	}
+
+<div class="cut"></div>
+
+函数 index 用来返回当前迭代器的 \_M\_current\_pos 值。
+
+	    size_t index() const { return _M_current_pos; }
+
+<div class="cut"></div>
+
+第一个构造函数为空构造函数，第二个构造函数中对 \_M\_current\_pos 和 \_M\_root 进行初始化，迭代器中一切参数的获取都依赖与 \_M\_current\_pos 和 \_M\_root 的值。
+
+	    _Rope_iterator_base() {}
+	    _Rope_iterator_base(_RopeRep* __root, size_t __pos)
+	      : _M_current_pos(__pos), _M_root(__root), _M_buf_ptr(0) {}
+
+<div class="cut"></div>
+
+拷贝构造函数用指定的迭代器 \_\_x 来初始化当前迭代器，如果 \_\_x 中 \_M\_buf\_ptr 不为0，即缓冲区有效，则直接进行软拷贝将 \_\_x 中的值复制到当前迭代器。否则用 \_\_x 中的值更新 \_M\_current\_pos 和 \_M\_root ，并令 \_M\_buf\_ptr 为 0。
+
+	    _Rope_iterator_base(const _Rope_iterator_base& __x) {
+		if (0 != __x._M_buf_ptr) {
+		    *this = __x;
+		} else {
+		    _M_current_pos = __x._M_current_pos;
+		    _M_root = __x._M_root;
+		    _M_buf_ptr = 0;
+		}
+	    }
+
+<div class="cut"></div>
+
+[STL 的 rope 分析（一）](../03/rope1.html)</br>
+[STL 的 rope 分析（二）](../03/rope2.html)</br>
+[STL 的 rope 分析（三）](../03/rope3.html)</br>
+[STL 的 rope 分析（四）](../03/rope4.html)</br>
+[STL 的 rope 分析（五）](../03/rope5.html)</br>
+[STL 的 rope 分析（六）](../03/rope6.html)</br>
+[STL 的 rope 分析（七）](../03/rope7.html)</br>

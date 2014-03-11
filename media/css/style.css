@@ -44,6 +44,14 @@ hr {
     content: '--- ✄ ---';
     text-align: center; }
 
+.cut{
+  margin: 2em 0;
+  color: #777; }
+  .cut:after {
+    display: block;
+    content: '/**-----------------------------------------------------------------------------------------**/';
+    text-align: left; }
+
 .blank {
 	margin: 2em 0;
 	color:#FFF;}

@@ -1,0 +1,354 @@
+---
+title: STL的内存分配器（二）
+layout: post
+key: 8fdb1594-b810-4220-b0a6-00f2ae738dfd
+tags:
+  -allocator 
+  -STL 
+---
+
+####类模板 default\_alloc\_template (精髓所在)####
+
+\_\_default\_alloc\_template 是一个类模板。有两个模板形参，分别为 threads , 类型为 bool。另一个为 inst ，类型为 int 。其中 threads 用来表示是否允许多线程，而 inst 只是在实例化时起一个区分的作用，类模板的定义中没有对他的使用。
+
+类中定义了三个没有命名的枚举变量，，分别在其中定义了三个枚举值 \_ALIGN, \_MAX\_BYTES 和 \_NFREELISTS 。三个枚举值都被用来作为常量表达式来使用。，针对不同的编译器而言，这三个枚举变量可能是全局变量，也可能是类模板的成员变量，但无论在哪里定义都不影响它在类中的可访问性。
+
+	    enum {_ALIGN = 8};
+	    enum {_MAX_BYTES = 128};
+	    enum {_NFREELISTS = 16}; // _MAX_BYTES/_ALIGN
+
+<div class="cut"></div>
+
+\_S\_round\_up 函数是一个向上取整函数，函数的返回一个 8 的倍数，如果给定的值 \_\_bytes 不能被 8 整除，那么在 \_\_bytes 加上一个 1 到 7 之间的值使得 加上这个值后能够被 8 整除，如果 \_\_byte 能被 8 整除，那么返回值就为其本身。
+
+	  static size_t
+	  _S_round_up(size_t __bytes) 
+	    { return (((__bytes) + (size_t) _ALIGN-1) & ~((size_t) _ALIGN - 1)); }
+
+<div class="cut"></div>
+\_Obj 为在类中定义的一个内联 (union) 类型。 其内部有一个 \_Obj 类型的指针，在内存分配中其用来指向下一块预分配内存区域的地址(这里的预分配，是指已经预先申请了空间，但还未被程序所使用），如果\_M\_free\_list\_link 为 0 (即 NULL) 则表示不存在已分配但未使用的地址空间（即所分配的地址空间已被用完，这里说已被用完，有点不严格，接来下讲到内存分配函数的时候会再详细叙述）。
+
+	  union _Obj {
+		union _Obj* _M_free_list_link;
+		char _M_client_data[1];    /* The client sees this.        */
+	  };
+
+
+<div class="cut"></div>
+然后定义了一个大小为 \_NFREELISTS 的指针 (\_Obj\*) 数组。该数组的成员属性是私有的。
+
+指针数组中的 \_NFREELISTS 个元素对应 \_NFREELISTS 个链表的表头，链表中的元素对应一块内存区域 (这里是说对应，不是说链表元素就是一块内存区域，实际上链表元素中存储的是内存区域的首地址)，通过链表将链表元素所对应的一块一块的内存区域链接起来。链表中每个元素对应的内存区域的大小与其表头在数组中的索引值相关。具体的内容在接下来的内存分配函数中会进行介绍。
+
+    static _Obj* __STL_VOLATILE _S_free_list[_NFREELISTS]; 
+
+
+<div class="cut"></div>
+私有函数 \_S\_freelist\_index 根据指定值 \_\_byte 来确定索引值。程序申请的空间，会提供一个拟申请的大小，根据这个大小，首先获得一个索引值。由得到的索引值能确定一个表头，表头为指针数组 \_S\_free\_list 中的一个元素。由这个表头开始的链表中可能会有一些预先分配的内存区域（每块区域的大小都为 \_S\_round\_up (\_\_bytes) ，也可能没有，如果没有则需要重新申请）。
+
+	  static  size_t _S_freelist_index(size_t __bytes) {
+		return (((__bytes) + (size_t)_ALIGN-1)/(size_t)_ALIGN - 1);
+	  }
+
+<div class="cut"></div>
+\_\_default\_alloc\_template 中定义了三个私有的成员变量 \_S\_start\_free, \_S\_end\_free, \_S\_heap\_size。 首先这是三个静态的私有成员变量，其作用可从字面意思上看出一二。 \_S\_start\_free 为空闲内存区域的起始地址，\_S\_end\_free 为空闲内存区域的结束地址，即 \_S\_start\_free 和 \_S\_end\_free 限定的区域是已申请并可供分配的内存区域。 \_S\_heap\_size 表示已经分配的内存的总大小。
+
+	  static char* _S_start_free;
+	  static char* _S_end_free;
+	  static size_t _S_heap_size;
+
+
+<div class="cut"></div>
+对以上的一系列静态的私有成员变量，初始化如下。 \_S\_start\_free 和 \_S\_end\_free 被初始化为空指针。 \_S\_heap\_size 的大小初始化为 0 。 对于 \_S\_free\_list 数组中的每个元素也都初始化为空指针。根据编译器的不同有两种不同的定义形式，但最后初始化的结果是一样的，都初始化为空指针。
+
+	template <bool __threads, int __inst>
+	char* __default_alloc_template<__threads, __inst>::_S_start_free = 0;
+
+	template <bool __threads, int __inst>
+	char* __default_alloc_template<__threads, __inst>::_S_end_free = 0;
+
+	template <bool __threads, int __inst>
+	size_t __default_alloc_template<__threads, __inst>::_S_heap_size = 0;
+
+	template <bool __threads, int __inst>
+	typename __default_alloc_template<__threads, __inst>::_Obj* __STL_VOLATILE
+	__default_alloc_template<__threads, __inst> ::_S_free_list[
+	# if defined(__SUNPRO_CC) || defined(__GNUC__) || defined(__HP_aCC)
+	    _NFREELISTS
+	# else
+	    __default_alloc_template<__threads, __inst>::_NFREELISTS
+	# endif
+	] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, };
+
+<div class="cut"></div>
+类中定义了一个 \_STL\_mutex\_lock 类型的变量 \_S\_node\_allocator\_lock ，它可以看成一个互斥锁。用于在内存分配和释放的过程中实现互斥，防止不同的程序同时操作同一片内存区域（我的臆测，没看过 \_STL\_mutex\_lock 的源码，单纯凭字面意思上作的不负责任的理解。）
+
+	static _STL_mutex_lock _S_node_allocator_lock;
+
+<div class="cut"></div>
+在 \_\_default\_alloc\_template 定义了一个嵌套类 \_Lock 。 并且声明为当前类模板的友元，使得 \_Lock中的成员函数可以访问类模板中的私有成员。
+
+一个比较巧妙的地方需要说明一下，在 \_Lock 的构造函数中定义了一个加锁的操作，而在析构函数中定义了一个解锁的操作。这里的加锁和解锁操作由之前定义的成员变量 \_S\_node\_allocator\_lock 调用它的成员函数来加以完成。
+
+构造函数中的 \_\_NODE\_ALLOCATOR\_LOCK 和 析构函数中的 \_\_NODE\_ALLOCATOR\_UNLOCK 是两个宏定义。在这两个宏定义中会根据是否使用了多线程等相关条件来判断是否需要调用 \_S\_node\_allocator\_lock 的 \_M\_acquire\_lock 成员函数和 \_M\_acquire\_unlock 成员函数来进行加锁和解锁。这样在加锁的地方只需定义一个 \_Lock 类型的变量，他就会自动调用构造函数进行加锁，操作内存完毕后，销毁对象时会调用析构函数，就会调用解锁操作。
+
+	    class _Lock;
+	    friend class _Lock;
+	    class _Lock {
+		public:
+		    _Lock() { __NODE_ALLOCATOR_LOCK; }
+		    ~_Lock() { __NODE_ALLOCATOR_UNLOCK; }
+	    };
+
+
+<div class="cut"></div>
+\_\_default\_alloc\_template 中的内存分配函数为 allocate 。
+
+函数首先判断待分配的内存大小是否比 \_MAX\_BYTES 要大，如果是，则用前面定义的 malloc\_alloc 的内存分配函数为其分配内存。否则由当前函数的后续部分为其分配内存。
+
+然后程序根据需要分配的内存大小来确定索引值，由 \_S\_free\_list 的地址和索引值可以取得一个链表的表头，暂存在 \_\_my\_free\_list 中，由该表头链接的链表中都是已分配的且大小为 \_S\_round\_up (\_\_n) 的内存区域。这些内存区域的首地址以链表的形式链接在一起。
+
+接着定义一个 \_Lock 对象进行加锁。并判断的 \_\_my\_free\_list 指向区域的 \_M\_free\_list\_link 是否为 0 ，这一值暂存在 result 中。如果不为 0 说明还没到链表尾，即还有已申请但未分配的内存供使用，则直接将表头的下一个元素所存的内存分配出去(元素存的是首地址，该首地址之后大小为 \_S\_roud\_up(\_\_n) 的空间是可用的)，并将表头的 \_M\_free\_list\_link 指向下一个元素 (即 result) 的 \_M\_free\_list\_link 。即将 result 从链表中移除了出去，然后将以 result 为首地址的内存区域返回给申请程序使用。
+
+如果 \_M\_free\_list\_link 为 0 则表示 表头之后没有下一个元素，即没有已申请的内存，此时需要重新分配内存或者利用其他链表中已申请但未分配的内存，分配给请求的程序。通过调用 \_S\_refill 来实现这一功能。
+
+		  static void* allocate(size_t __n)
+		  {
+		    void* __ret = 0;
+
+		    if (__n > (size_t) _MAX_BYTES) {
+		      __ret = malloc_alloc::allocate(__n);
+		    }
+		    else {
+		      _Obj* __STL_VOLATILE* __my_free_list
+			  = _S_free_list + _S_freelist_index(__n);
+		      // Acquire the lock here with a constructor call.
+		      // This ensures that it is released in exit or during stack
+		      // unwinding. nice!!!
+		#ifndef _NOTHREADS
+		      /*REFERENCED*/
+		      _Lock __lock_instance;
+		#endif
+		      _Obj* __RESTRICT __result = *__my_free_list;
+		      //get the _M_free_list_link of _my_free_list
+		      if (__result == 0)
+			__ret = _S_refill(_S_round_up(__n));
+	      else {
+		// allocate a space , and update the head of list
+		*__my_free_list = __result -> _M_free_list_link;
+		__ret = __result;
+	      }
+	    }
+
+	    return __ret;
+	  };
+
+<div class="cut"></div>
+\_S\_refill 函数主要用于当指定索引位置的链表中没有（或者是不够）可供分配的内存时来重新申请或者借用（从其他链表借用）内存。
+
+函数的开始处调用了 \_S\_chunk\_alloc 函数，和 \_S\_refill 函数一样，该函数也是私有的，只能供类的成员函数使用。这里暂时不讨论\_S\_chunk\_alloc 的具体实现。
+
+函数实现的功能是分配大小为 \_\_n * \_\_nobjs 的内存空间，注意尽管 \_\_nobjs 的初始值是 20 ， 但在 \_S\_chunk\_alloc 中可能会改变他的值 , \_S\_chunk\_alloc 的第二个形参是引用类型的。在函数 \_S\_chunk\_alloc 中对 \_\_nobjs 的改变都会反应到函数外面。同时改变 \_\_nobjs 时的值只有可能将其值减小，不可能增大。这里先假设通过调用 \_S\_chunk\_alloc 已经分配了 \_\_n * \_\_nobjs 的内存空间，并且起始地址暂存在指针 \_\_chunk 中
+
+如果 \_\_nobjs == 1 ，则直接返回 \_\_chunk 。将 \_\_chunk 作为新申请的内存空间的首地址返回给申请程序。
+
+如果 \_\_nobjs > 1 时，因为程序只申请大小为 \_\_n 的空间，但 \_S\_chunk\_alloc 中实际申请的空间为 \_\_n * \_\_nobjs ，比 \_\_n 要多。那么余下的内存区域则会被划分成 \_\_nobjs - 1 个大小为 \_\_n 的内存区域，并将这些内存区域链接成一个链表。将表头的 \_M\_free\_list\_link 指向第一块内存区域。表头的确定可以由 \_S\_free\_list 和 \_S\_freelist\_index 函数求得的索引值确定。
+
+两点需要强调，第一点是 \_\_n 的大小都为 \_ALIGN (即为 8）的倍数。因为 调用 \_S\_refill的时候会先对 \_\_n 调用 \_S\_round\_up 并将返回值作为 \_S\_refill 的实参，这样做的好处是不会产生内存碎片，但可能会有多余的内存分配，比如程序只申请3 bytes 的内存，但也会分配 8 bytes 的内存。
+
+第二点是 \_S\_free\_list + \_S\_freelist\_index (\_\_n)  得到的是一个表头，如果该表头链接而成的链表不为空，那么通过该表头链接而成的链表中的元素都是一个一个大小为 \_S\_round\_up (\_\_n) 的内存区域的首地址。这样相当于每一块内存区域通过 \_M\_free\_list\_link 前后链接在一起，表头的 \_M\_free\_list\_link 指向第一块内存区域，内存区域是通过链表链接，不同的内存区域之间不需要连续，也没有前后顺序。当由表头链接而成的链表中除了表头之外没有元素，即表头的 \_M\_free\_list\_link 为 0 ，则调用 \_S\_refill 函数。
+
+	__default_alloc_template<__threads, __inst>::_S_refill(size_t __n)
+	{
+	    int __nobjs = 20;
+	    char* __chunk = _S_chunk_alloc(__n, __nobjs);
+	    _Obj* __STL_VOLATILE* __my_free_list;
+	    _Obj* __result;
+	    _Obj* __current_obj;
+	    _Obj* __next_obj;
+	    int __i;
+
+	    if (1 == __nobjs) return(__chunk);
+	    __my_free_list = _S_free_list + _S_freelist_index(__n);
+
+	    /* Build free list in chunk */
+	      __result = (_Obj*)__chunk;
+	      *__my_free_list = __next_obj = (_Obj*)(__chunk + __n);
+	      for (__i = 1; ; __i++) {
+		__current_obj = __next_obj;
+		__next_obj = (_Obj*)((char*)__next_obj + __n);
+		if (__nobjs - 1 == __i) {
+		    __current_obj -> _M_free_list_link = 0;
+		    break;
+		} else {
+		    __current_obj -> _M_free_list_link = __next_obj;
+		}
+	      }
+	    return(__result);
+	}
+
+<div class="cut"></div>
+\_S\_chunk\_alloc 函数的实现较长，首先看私有变量 \_S\_start\_free 和 \_S\_end\_free，前面的函数中还没出现过这两个变量。然后 \_S\_chunk\_alloc 中一开始先查看这两个变量限定的区域之间是否还有多余的内存可供分配。对于 \_S\_start\_free 和 \_S\_end\_free 可以从始至终的认为他们是指向一片已申请但未分配的内存区域，其中 \_S\_start\_free 表示起始地址， \_S\_end\_free 表示结束地址。如果这两个值相同就表示已申请且未分配的内存区域为空，两个成员变量的初始值都为 0 。
+
+程序首先检测 \_S\_start\_free 和 \_S\_end\_free 包含的已申请内存区域的大小是否可以满足 \_\_size \* \_\_nobjs 。这里 1 <= \_\_nobjs <= 20 。如果可以则直接将该内存区域中大小为 \_\_size \* \_\_nobjs 的内存分配出去。并更新 \_S\_start\_free 的值，程序就可以直接返回了。这两种情况在 if 语句和 else if 语句中进行了实现。但如果 \_S\_end\_free - \_S\_start\_free 的值比 \_\_size 还小，那就重新进行内存分配。具体在 else 语句中进行实现。
+
+重新分配的内存大小为 2 * \_\_total\_bytes + \_S\_round\_up(\_S\_heap\_size >> 4) 。通过直接调用 c 语言的 malloc 函数进行内存分配。
+
+分配之前程序还做了一件事，那就是先将 \_S\_start\_free 和 \_S\_end\_free 之间的内存进行回收 (如果有的话）。回收的方法也很简单，首先 \_S\_end\_free - \_S\_start\_free 的大小，看它是适合放在那个链表，因为不同的表头所链接的链表中每个元素代表的内存区域的大小是不同的。通过 \_S\_free\_list + \_S\_freelist\_index (\_\_bytes\_left) 找到合适的表头之后，将这片内存区域作为一个元素插入到链表中，等于就回收了这片内存区域，这里 \S\_end\_free - \_S\_start\_free 是 \_ALIGN 的倍数，所以肯定有一个链表能收留它。
+
+回收了 \_S\_start\_free 和 \_S\_end\_free 中的内存后，然后重新分配内存，如果分配成功，则重新设定 \S\_start\_free 和 \_S\_end\_free 的值后再次调用 \_S\_chunk\_alloc 。并且下次肯定会在程序的开始处顺利退出，不同产生新的递归调用。
+
+但如果内存分配不成功，则可能需要向其他的链表借内存了。方法就是寻找 \_S\_free\_list + \_S\_freelist\_index (\_\_i) (\_\_size <= \_\_i <= \_MAX\_BYTES) 所决定的表头所链接的链表中是否存在已申请但未分配的内存，如果有，则重设 \S\_start\_free 和 \_S\_end\_free 的值，递归调用 \_S\_chunk\_alloc ,并且下次调用一定会成功，因为 \_\_i >= size 。
+
+这里有几点需要强调一下，第一个对 \_S\_start\_free 和 \_S\_end\_free 进行重新赋值是没有问题的，因为 \_S\_start\_free 和 \_S\_end\_free 之间的内存在前面已经被回收了。第二个对 \_S\_start 和 \_S\_end\_free 重新赋值之后，下次再次调用 \_S\_chunk\_alloc 肯定能在程序的开始出顺利退出而不产生新的递归调用，因为赋值之后 \_S\_start\_free 与 \_S\_end\_free 之间的内存大小为 \_\_i ，而 \_\_i >= \_\_size 。所以\_S\_start\_free 到 \_S\_end\_free 之间的内存是能满足申请要求。
+
+如果其他链表中也没有可用的内存，那么就调用 malloc\_alloc 类的 allocate 函数申请所需的内存(malloc\_alloc 中有错误诊断函数)。并在设定好 \_S\_start\_free 和 \_S\_start\_end 之后递归调用 \_S\_chunk\_alloc 函数。在下次递归调用中程序也会顺利退出。
+
+	__default_alloc_template<__threads, __inst>::_S_chunk_alloc(size_t __size, 
+								    int& __nobjs)
+	{
+	    char* __result;
+	    size_t __total_bytes = __size * __nobjs;
+	    size_t __bytes_left = _S_end_free - _S_start_free;
+
+	    if (__bytes_left >= __total_bytes) {
+		__result = _S_start_free;
+		_S_start_free += __total_bytes;
+		return(__result);
+	    } else if (__bytes_left >= __size) {
+		__nobjs = (int)(__bytes_left/__size);
+		__total_bytes = __size * __nobjs;
+		__result = _S_start_free;
+		_S_start_free += __total_bytes;
+		return(__result);
+	    } else {
+		size_t __bytes_to_get = 
+		  2 * __total_bytes + _S_round_up(_S_heap_size >> 4);
+		// Try to make use of the left-over piece.
+		if (__bytes_left > 0) {
+			
+		// __bytes_left is a multiple of _ALIGN
+		    _Obj* __STL_VOLATILE* __my_free_list =
+				_S_free_list + _S_freelist_index(__bytes_left);
+			
+		    // the area pointed by _S_start_free is set by the value of *__my_free_list
+		    // add the extra space to the free_list
+		    ((_Obj*)_S_start_free) -> _M_free_list_link = *__my_free_list;
+		    // the _M_free_list_link is set by the address of _S_start_free
+		    // update the head of link list.
+		    *__my_free_list = (_Obj*)_S_start_free;
+		}
+		_S_start_free = (char*)malloc(__bytes_to_get);
+		if (0 == _S_start_free) {
+		    size_t __i;
+		    _Obj* __STL_VOLATILE* __my_free_list;
+		    _Obj* __p;
+		    // Try to make do with what we have.  That can't
+		    // hurt.  We do not try smaller requests, since that tends
+		    // to result in disaster on multi-process machines.
+		    for (__i = __size;
+			 __i <= (size_t) _MAX_BYTES;
+			 __i += (size_t) _ALIGN) {
+			__my_free_list = _S_free_list + _S_freelist_index(__i);
+			__p = *__my_free_list;
+			if (0 != __p) {
+			    *__my_free_list = __p -> _M_free_list_link;
+			    _S_start_free = (char*)__p;
+			    _S_end_free = _S_start_free + __i;
+			    return(_S_chunk_alloc(__size, __nobjs));
+			    // Any leftover piece will eventually make it to the
+			    // right free list.
+			}
+		    }
+		    _S_end_free = 0;	// In case of exception.
+		    _S_start_free = (char*)malloc_alloc::allocate(__bytes_to_get);
+		    // This should either throw an
+		    // exception or remedy the situation.  Thus we assume it
+		    // succeeded.
+		}
+		_S_heap_size += __bytes_to_get;
+		_S_end_free = _S_start_free + __bytes_to_get;
+		return(_S_chunk_alloc(__size, __nobjs));
+	    }
+	}
+
+<div class="cut"></div>
+函数 reallocate 实现的功能是回收原先分配的大小为 \_\_old\_sz 的内存空间的同时，再为程序分配 \_\_new\_sz 的内存。
+
+首先检测是否 \_\_old\_sz 和 \_\_new\_sz 是否都大于 \_MAX\_BYTES,如果是，说明旧的内存由 malloc 分配，且新内存因为大小超出 \_MAX\_BYTES ，而需要 realloc 来担负回收旧内存和分配新内存的工作。
+
+如果第一个 if 检测条件不成立，那么可以肯定 \_\_old\_sz 和 \_\_new\_sz 中必有一个小于 \_MAX\_BYTES 。判断 \_S\_round\_up(\_\_old\_sz) 和 \_S\_round\_up(\_\_new\_sz)) 是否相等。如果是，则直接返回旧地址，因为 p 指向的地址空间分配的内存大小就为 \_S\_round\_up (\_\_old\_size) ，大于等于 \_\_new\_sz 。
+
+如果不等，则调用 allocate 函数分配 \_\_new\_sz 大小的内存空间，这里 \_\_new\_sz 可能大于 \_\_MAX\_BYTES 。再将旧内存地址中的内容复制到新内存地址，接着回收原先分配的大小为 \_\_old\_size 的内存。通过 deallocate 回收，deallocate 中会根据 \_\_old\_sz 的大小选择回收的方式。
+
+	__default_alloc_template<threads, inst>::reallocate(void* __p,
+							    size_t __old_sz,
+							    size_t __new_sz)
+	{
+	    void* __result;
+	    size_t __copy_sz;
+
+	    if (__old_sz > (size_t) _MAX_BYTES && __new_sz > (size_t) _MAX_BYTES) {
+		return(realloc(__p, __new_sz));
+	    }
+	    if (_S_round_up(__old_sz) == _S_round_up(__new_sz)) return(__p);
+	    __result = allocate(__new_sz);
+	    __copy_sz = __new_sz > __old_sz? __old_sz : __new_sz;
+	    memcpy(__result, __p, __copy_sz);
+	    deallocate(__p, __old_sz);
+	    return(__result);
+	}
+
+<div class="cut"></div>
+函数 deallocate 主要是对已分配的内存进行回收再利用。 首先根据 \_\_n 判断是由 malloc\_alloc 进行内存回收还是有 \_default\_alloc\_template 进行内存回收。其中 default\_alloc\_template 的内存回收是再将他放入到链表中去，作为已申请但未分配的内存，供下次分配使用。
+
+如果是 \_default\_alloc\_template 回收，则根据待回收的内存大小 \_\_n 判断放入哪一个链表中，先设置互斥锁，然后再将这一片内存区域加入到链表。再解锁。解锁会在程序退出是自动调用 lock 的析构函数完成。
+
+
+	  static void deallocate(void* __p, size_t __n)
+	  {
+	    if (__n > (size_t) _MAX_BYTES)
+	      malloc_alloc::deallocate(__p, __n);
+	    else {
+	      _Obj* __STL_VOLATILE*  __my_free_list
+		  = _S_free_list + _S_freelist_index(__n);
+	      _Obj* __q = (_Obj*)__p;
+
+	      // acquire lock
+	#ifndef _NOTHREADS
+	      /*REFERENCED*/
+	      _Lock __lock_instance;
+	#endif /* _NOTHREADS */
+	      __q -> _M_free_list_link = *__my_free_list;
+	      *__my_free_list = __q;
+	      // lock is released here
+	    }
+	  }
+
+<div class="cut"></div>
+以上是 \_\_default\_alloc\_template 的内存分配方法，应该可以算是 stl\_alloc.h 中最核心的部分了，总结如下。
+
+内部定义了一个指针数组，用来作为每个链表的表头，对于其中的某个链表，其中的每一个元素都对应于一块大小相同的内存区域。并且这些内存区域以链表的形式链接在一起。
+
+内存主要存在两个地方，第一个是在链表中，第二个是在 \_S\_start\_free 和 \_S\_end\_free 表示的内存区域。
+
+程序在分配一块给定大小的内存时，首先会根据内存大小确定一个表头，如果由该表头链接的链表中有已分配但为使用的内存区域，则直接返回给申请程序，否则会查看 \_S\_start\_free 到 \_S\_end\_free 之间是否有符合要求的内存，如果该区域的内存不够分配，会对该区域的内存进行回收，并再重新分配内存。如果分配内存失败，会再搜索其中的某些链表，寻找合适的内存空间分配给程序。如果仍然没有合适的内存供分配，则调用 malloc\_alloc 的内存分配函数来进行内存分配，该类中定义了错误处理函数，会对内存分配过程中产生的错误进行处理。
+
+这里定义了两个类型别名，用来供下面的适配器调用。
+
+	typedef __default_alloc_template<__NODE_ALLOCATOR_THREADS, 0> alloc;
+	typedef __default_alloc_template<false, 0> single_client_alloc;
+
+其中 alloc 会被作为默认的内存分配器，它是线程安全的，当应用多线程时，其内部实现会有互斥机制的实现。
+
+但 single\_client\_alloc 中由于第一个模板形参为 false ，这样即使存在多线程的应用，也不会触发互斥机制。这点可以从一下宏定义中看出
+
+这个宏定义是写在 \_Lock 的构造函数中的，如果第一个模板形参 （即 threads）为 false ,条件判断不成立，会忽略互斥锁的调用。 但对于 \_\_NODE\_ALLOCATOR\_THREADS，当存在多线程时，它会被置为true ，当只是单线程时它会被置为 false 。这样使得在保证安全的同时又保证效率。
+
+	#   define __NODE_ALLOCATOR_LOCK if (threads && __us_rsthread_malloc) \
+			{ _S_node_allocator_lock._M_acquire_lock(); }
+
+<div class="cut"></div>
+
+[STL的内存分配器（一）](../12/alloc1.html)</br>
+[STL的内存分配器（二）](../12/alloc2.html)</br>
+[STL的内存分配器（三）](../12/alloc3.html)</br>

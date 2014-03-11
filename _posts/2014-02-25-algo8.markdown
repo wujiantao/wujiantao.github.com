@@ -1,0 +1,254 @@
+---
+title: STL 的算法(algo) 分析（八）
+layout: post
+key: bd4e2752-e5eb-4465-967c-5bbcd4158d7c
+tags:
+  -algo 
+  -STL 
+---
+
+
+函数 max\_elements 求 \_\_first 到 \_\_last 之间最大的元素。如果有多个最大元素则取第一个元素。
+
+	template <class _ForwardIter>
+	_ForwardIter max_element(_ForwardIter __first, _ForwardIter __last) {
+	  __STL_REQUIRES(_ForwardIter, _ForwardIterator);
+	  __STL_REQUIRES(typename iterator_traits<_ForwardIter>::value_type,
+			 _LessThanComparable);
+	  if (__first == __last) return __first;
+	  _ForwardIter __result = __first;
+	  while (++__first != __last) 
+	    if (*__result < *__first)
+	      __result = __first;
+	  return __result;
+	}
+
+<div class="cut"></div> 
+
+函数 min\_elements 求 \_\_first 到 \_\_last 之间的最小元素，如果有多个最小元素则取第一个元素。
+
+	template <class _ForwardIter>
+	_ForwardIter min_element(_ForwardIter __first, _ForwardIter __last) {
+	  __STL_REQUIRES(_ForwardIter, _ForwardIterator);
+	  __STL_REQUIRES(typename iterator_traits<_ForwardIter>::value_type,
+			 _LessThanComparable);
+	  if (__first == __last) return __first;
+	  _ForwardIter __result = __first;
+	  while (++__first != __last) 
+	    if (*__first < *__result)
+	      __result = __first;
+	  return __result;
+	}
+
+<div class="cut"></div> 
+
+函数 next\_permutation 用来检测 \_\_first 到 \_\_last 组成的元素序列是否存在下一个全排列。
+
+函数从最尾部的一个元素开始向前查找，找到第一个比它的下一个位置的元素小的元素，令 \_\_i 是第一个满足比它的下一个元素小的元素，令 \_\_ii 是它的下一个元素。令 \_\_j 是 \_\_last 的前一个元素所在的位置，然后 \_\_j 不断的向前移动，直到 \_\_j 所在位置的元素大于 \_\_i 所在位置的元素 (\_\_j 不会移动到超过 \_\_ii ，因为 \_\_ii 所在的位置上的元素要比 \_\_i 所在位置的元素大)。
+
+然后交换 \_\_i 和 \_\_j 所在位置的元素。因为交换之前 \_\_i 所在位置的元素 比 \_\_j 之后的元素都大(\_\_j 所在位置的元素是从 \_\_last - 1 开始往前第一个比\_\_i 所在位置的元素大的元素)。而且 \_\_i 所在位置的元素比 \_\_ii 到 \_\_j 之间的元素都要小(\_\_j 比 \_\_ii 到其之前位置之间的元素都要小，而 \_\_i 所在位置的元素比 \_\_j 所在位置的元素要小)。因此交换之后 \_\_ii 到 \_\_last 之间的元素是逆序排列的，在将这个逆序在逆序一遍，使其变成顺序，则就得到了下一个全排列，如果这样的全排列是存在的，则返回 true ，否则返回 false 。
+
+	template <class _BidirectionalIter>
+	bool next_permutation(_BidirectionalIter __first, _BidirectionalIter __last) {
+	  __STL_REQUIRES(_BidirectionalIter, _BidirectionalIterator);
+	  __STL_REQUIRES(typename iterator_traits<_BidirectionalIter>::value_type,
+			 _LessThanComparable);
+	  if (__first == __last)
+	    return false;
+	  _BidirectionalIter __i = __first;
+	  ++__i;
+	  if (__i == __last)
+	    return false;
+	  __i = __last;
+	  --__i;
+
+	  for(;;) {
+	    _BidirectionalIter __ii = __i;
+	    --__i;
+	    if (*__i < *__ii) {
+	      _BidirectionalIter __j = __last;
+	      while (!(*__i < *--__j))
+		{}
+	      iter_swap(__i, __j);
+	      reverse(__ii, __last);
+	      return true;
+	    }
+	    if (__i == __first) {
+	      reverse(__first, __last);
+	      return false;
+	    }
+	  }
+	}
+
+<div class="cut"></div> 
+
+函数 prev\_permutation 用来判断 \_\_first 到 \_\_last 之间的元素组成的序列的上一个全排列是否存在。
+
+函数从位置 \_\_last - 1 开始往前查找，找到第一个比它的下一个元素要大的元素，令 \_\_i 是第一个满足条件的元素所在的位置， \_\_ii 是其下一个位置。令 \_\_j 从 \_\_last - 1 的位置开始向前移动，直到 \_\_j 所在位置的元素比 \_\_i 要小。
+
+则此时 \_\_i 所在位置的元素同样比 \_\_ii 到 \_\_j 之间的元素要大，因\_\_j 所在位置的元素要比 \_\_ii 到 \_\_j 之间的元素要大，而 \_\_i 所在位置的元素比 \_\_j 所在位置的元素要大，所以 \_\_i 所在位置的元素要比 \_\_ii 到 \_\_j 之间的元素要大，同样因为 \_\_j 是从 \_\_last - 1 开始第一个比 \_\_i 所在位置的元素要小的元素所在的位置，因此它之后的元素应该都比 \_\_i 所在位置的元素要大。
+
+此时交换 \_\_i 所在位置的元素和 \_\_j 所在位置的元素，交换之后，\_\_i 所在位置之后的元素是以升序排列的，将这个升序序列逆序，则所得的序列就是当前 \_\_first 到 \_\_last 之间的元素序列的上一个全排列，如果这样的全排列存在，则返回 true ，否则返回 false 。
+
+	template <class _BidirectionalIter>
+	bool prev_permutation(_BidirectionalIter __first, _BidirectionalIter __last) {
+	  __STL_REQUIRES(_BidirectionalIter, _BidirectionalIterator);
+	  __STL_REQUIRES(typename iterator_traits<_BidirectionalIter>::value_type,
+			 _LessThanComparable);
+	  if (__first == __last)
+	    return false;
+	  _BidirectionalIter __i = __first;
+	  ++__i;
+	  if (__i == __last)
+	    return false;
+	  __i = __last;
+	  --__i;
+
+	  for(;;) {
+	    _BidirectionalIter __ii = __i;
+	    --__i;
+	    if (*__ii < *__i) {
+	      _BidirectionalIter __j = __last;
+	      while (!(*--__j < *__i))
+		{}
+	      iter_swap(__i, __j);
+	      reverse(__ii, __last);
+	      return true;
+	    }
+	    if (__i == __first) {
+	      reverse(__first, __last);
+	      return false;
+	    }
+	  }
+	}
+
+
+<div class="cut"></div> 
+
+函数 find\_first\_of 查找从 \_\_first1 开始到 \_\_last1 第一次出现 \_\_first2 到 \_\_last2 之间的元素的位置。直接用两层 for 循环进行蛮力搜索。
+
+	template <class _InputIter, class _ForwardIter>
+	_InputIter find_first_of(_InputIter __first1, _InputIter __last1,
+				 _ForwardIter __first2, _ForwardIter __last2)
+	{
+	  __STL_REQUIRES(_InputIter, _InputIterator);
+	  __STL_REQUIRES(_ForwardIter, _ForwardIterator);
+	  __STL_REQUIRES_BINARY_OP(_OP_EQUAL, bool, 
+	     typename iterator_traits<_InputIter>::value_type,
+	     typename iterator_traits<_ForwardIter>::value_type);
+
+	  for ( ; __first1 != __last1; ++__first1) 
+	    for (_ForwardIter __iter = __first2; __iter != __last2; ++__iter)
+	      if (*__first1 == *__iter)
+		return __first1;
+	  return __last1;
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_find\_end 用来查找 \_\_first2 到 \_\_last2 组成的元素序列是否出现在 \_\_first1 到 \_\_last1 之间。如果出现了，则返回它最后一次出现的位置。函数直接调用 search 函数来实现查找。
+
+	template <class _ForwardIter1, class _ForwardIter2>
+	_ForwardIter1 __find_end(_ForwardIter1 __first1, _ForwardIter1 __last1,
+				 _ForwardIter2 __first2, _ForwardIter2 __last2,
+				 forward_iterator_tag, forward_iterator_tag)
+	{
+	  if (__first2 == __last2)
+	    return __last1;
+	  else {
+	    _ForwardIter1 __result = __last1;
+	    while (1) {
+	      _ForwardIter1 __new_result
+		= search(__first1, __last1, __first2, __last2);
+	      if (__new_result == __last1)
+		return __result;
+	      else {
+		__result = __new_result;
+		__first1 = __new_result;
+		++__first1;
+	      }
+	    }
+	  }
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_find\_end 查找 \_\_first2 到 \_\_last2 组成的元素序列是否存在于 \_\_first1 到 \_\_last1 组成的元素序列中，如果在，则返回其最后一次出现的位置。
+
+因为迭代器类型为 bidirectional\_iterator。因此用 \_\_first1 和 \_\_last1 构造反向迭代器得到 \_\_first1 到 \_\_last1 组成的序列的一个逆序，同样的方式得到 \_\_first2 到 \_\_last2 组成的序列的一个逆序，用 search 函数查找 \_\_first2 到 \_\_last2 的逆序是否出现在 \_\_first1 到 \_\_last1 的逆序中，如果出现，则由它逆序第一次出现的位置可以计算出原始序列最后一次出现的位置。因此整个查找过程只需要调用一次 search 函数。
+
+	template <class _BidirectionalIter1, class _BidirectionalIter2>
+	_BidirectionalIter1
+	__find_end(_BidirectionalIter1 __first1, _BidirectionalIter1 __last1,
+		   _BidirectionalIter2 __first2, _BidirectionalIter2 __last2,
+		   bidirectional_iterator_tag, bidirectional_iterator_tag)
+	{
+	  __STL_REQUIRES(_BidirectionalIter1, _BidirectionalIterator);
+	  __STL_REQUIRES(_BidirectionalIter2, _BidirectionalIterator);
+	  typedef reverse_iterator<_BidirectionalIter1> _RevIter1;
+	  typedef reverse_iterator<_BidirectionalIter2> _RevIter2;
+
+	  _RevIter1 __rlast1(__first1);
+	  _RevIter2 __rlast2(__first2);
+	  _RevIter1 __rresult = search(_RevIter1(__last1), __rlast1,
+				       _RevIter2(__last2), __rlast2);
+
+	  if (__rresult == __rlast1)
+	    return __last1;
+	  else {
+	    _BidirectionalIter1 __result = __rresult.base();
+	    advance(__result, -distance(__first2, __last2));
+	    return __result;
+	  }
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_is\_heap 用来判断 \_\_first 到 \_\_last 的序列是否组成一个最大堆。
+
+	template <class _RandomAccessIter, class _Distance>
+	bool __is_heap(_RandomAccessIter __first, _Distance __n)
+	{
+	  _Distance __parent = 0;
+	  for (_Distance __child = 1; __child < __n; ++__child) {
+	    if (__first[__parent] < __first[__child]) 
+	      return false;
+	    if ((__child & 1) == 0)
+	      ++__parent;
+	  }
+	  return true;
+	}
+
+<div class="cut"></div> 
+
+函数 \_\_is\_sorted 用来判断 \_\_first 到 \_\_last 的序列是否是有序的。
+
+	template <class _ForwardIter>
+	bool is_sorted(_ForwardIter __first, _ForwardIter __last)
+	{
+	  __STL_REQUIRES(_ForwardIter, _ForwardIterator);
+	  __STL_REQUIRES(typename iterator_traits<_ForwardIter>::value_type,
+			 _LessThanComparable);
+	  if (__first == __last)
+	    return true;
+
+	  _ForwardIter __next = __first;
+	  for (++__next; __next != __last; __first = __next, ++__next) {
+	    if (*__next < *__first)
+	      return false;
+	  }
+
+	  return true;
+	}
+
+
+<div class="cut"></div>
+
+[STL 的 算法 (algo) 分析（一）](../25/algo1.html)</br>
+[STL 的 算法 (algo) 分析（二）](../25/algo2.html)</br>
+[STL 的 算法 (algo) 分析（三）](../25/algo3.html)</br>
+[STL 的 算法 (algo) 分析（四）](../25/algo4.html)</br>
+[STL 的 算法 (algo) 分析（五）](../25/algo5.html)</br>
+[STL 的 算法 (algo) 分析（六）](../25/algo6.html)</br>
+[STL 的 算法 (algo) 分析（七）](../25/algo7.html)</br>
+[STL 的 算法 (algo) 分析（八）](../25/algo8.html)</br>

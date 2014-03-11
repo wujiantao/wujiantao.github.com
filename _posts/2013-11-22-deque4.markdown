@@ -1,0 +1,200 @@
+---
+title: STL 的 deque 分析（四）
+layout: post
+key: 2fbcf980-3469-4bc3-8950-aed2f8b96bb5
+tags:
+  -deque 
+  -STL 
+---
+
+erase 函数删除 deque 中指定位置 \_\_pos 上的一个元素，因为 deque 是双端队列，元素存储在不同的连续内存块中。虽然不同的内存块之间不连续(但有顺序，其首地址在 \_M\_map 中的位置决定了其内部的元素在 deque 中所处的位置)，但同一个内存块中的元素是连续的。
+
+当删除 \_\_pos 指示位置上的元素之后为保证 deque 中元素的连续性，要么将 \_\_pos 之前的元素整体向后移动一个位置，要么将 \_\_pos 之后的元素整体想前移动一个位置，将 \_\_pos 之前的一个元素移动一个位置所需的代价和将 \_\_pos 之后的元素移动一个位置所需的代价是相同的。
+
+为了程序的实现高效，程序比较 \_\_pos 是在 deuqe 的前半部分还是在 deque 的后半部分，如果 \_\_pos 在 deque 的前半部分则将 deque 中 \_\_pos 之前的元素整体向后移动一个位置，否则将 deque 中 \_\_pos 之后的元素整体向前移动一个位置。返回值为删除之前 \_\_pos 下一个位置的迭代器。
+
+	  iterator erase(iterator __pos) {
+	    iterator __next = __pos;
+	    ++__next;
+	    difference_type __index = __pos - _M_start;
+	    if (size_type(__index) < (this->size() >> 1)) {
+	      copy_backward(_M_start, __pos, __next);
+	      pop_front();
+	    }
+	    else {
+	      copy(__next, _M_finish, __pos);
+	      pop_back();
+	    }
+	    return _M_start + __index;
+	  }
+
+<div class="cut"></div>
+
+erase 函数删除当前 deque 中 first 到 last 之间的元素。函数内部没有对 \_\_first 和 \_\_last 的正确性进行验证，为保证正确性，\_\_first 不能在 \_M\_start 之前，而 \_\_last 也不能在 \_M\_finish 之后。程序首先检测是否 \_\_first 为 \_M\_start 且 \_\_last 为 \_M\_finish，如果是，则直接调用 clear() 。
+
+如果不是，则首先计算出 \_\_first 和 \_\_last 之间一共有多少个元素，存储在变量 \_\_n 中。同时计算 \_M\_start 和 \_\_first 之间一共有多少个元素，存储在变量 \_\_elems\_before 中。和上面的 erase 函数类似，为保证删除之后 deque 中元素的连续性，可以将 \_M\_start 到 \_\_first 之间的元素整体向后移动 \_\_n 个元素，也可以将 \_\_last 到 \_M\_finish 之间的元素整体向前移动 \_\_n 个元素。
+
+程序内部计算 \_\_elems\_before 是为了计算出移动 \_\_first 之前的元素和移动 \_\_last 之后的元素，哪种方法所需的代价更小。通过判断 \_\_first 到 \_\_last 之间的元素个数 (\_\_elems\_before) 是否少于 \_\_last 到 \_\_M\_finish 之间的元素个数。
+
+如果 \_\_first 到 \_\_last 之间的元素个数 (\_\_elems\_before) 少于 \_\_last 到 \_\_M\_finish 之间的元素个数。则调用 copy\_backward 将 \_\_first 之前的元素整体向后移动 \_\_n 个位置，copy\_backward 与 copy 函数拷贝的方向不同，copy\_backward 是从后往前拷贝，而 copy 是从前往后进行拷贝。移动之后，原先 deque 中的前 \_\_n 个元素相当于是无效元素了，调用 destory 将这些元素销毁掉，并释放这部分空间。同时设置好 \_M\_start 的值。
+
+如果 \_\_first 到 \_\_last 之间的元素个数 (\_\_elems\_before) 大于 \_\_last 到 \_\_M\_finish 之间的元素个数。 则将 \_\_last 之后的元素整体向前移动 \_\_n 个位置。调用 copy 函数将 \_\_last 之后的元素整体移动 \_\_n 个位置。移动之后最后面的 \_\_n 个元素为无效元素，通过 destory 函数将这 \_\_n 个元素进行销毁，并调用基类的 \_M\_destory\_nodes 回收内存空间。
+
+程序中 \_\_new\_finish 是移动之后结束标记所在的位置。 以 \_\_new\_finish.\_M\_node 指向的元素为首地址的内存空间是不能回收的，同时之前结束标记所在的内存块 (即 \_M\_finish.\_M\_node 指向的元素为首地址的内存块) 需要删除，所以将 \_\_new\_finish.\_M\_node + 1 和 \_M\_finish.\_M\_node + 1 作为 \_M\_destory\_nodes 的形参。最后调整 \_M\_finish 的值。
+
+函数返回值为指向 \_\_last 之后的元素的迭代器。deque 的 erase 函数和 vecotr中 erase 函数不同，vector 中 erase 函数只是销毁对象，但并不回收空间，以便下次插入元素是重新利用这部分空间，而 deque 中的 erase 函数则既销毁已删除的对象，同时回收原先为这部分对象分配的内存空间。
+
+	template <class _Tp, class _Alloc>
+	typename deque<_Tp,_Alloc>::iterator 
+	deque<_Tp,_Alloc>::erase(iterator __first, iterator __last)
+	{
+	  if (__first == _M_start && __last == _M_finish) {
+	    clear();
+	    return _M_finish;
+	  }
+	  else {
+	    difference_type __n = __last - __first;
+	    difference_type __elems_before = __first - _M_start;
+	    if (__elems_before < difference_type((this->size() - __n) / 2)) {
+	      copy_backward(_M_start, __first, __last);
+	      iterator __new_start = _M_start + __n;
+	      destroy(_M_start, __new_start);
+	      _M_destroy_nodes(__new_start._M_node, _M_start._M_node);
+	      _M_start = __new_start;
+	    }
+	    else {
+	      copy(__last, _M_finish, __first);
+	      iterator __new_finish = _M_finish - __n;
+	      destroy(__new_finish, _M_finish);
+	      _M_destroy_nodes(__new_finish._M_node + 1, _M_finish._M_node + 1);
+	      _M_finish = __new_finish;
+	    }
+	    return _M_start + __elems_before;
+	  }
+	}
+
+<div class="cut"></div>
+
+insert 函数在指定位置插入一个指定的元素。顺序容器中除了 list ，其他的容器在中间插入一个元素的代价都比价大，因为插入元素需要对指定位置之后(deque 中还可以考虑移动指定位置之前的元素,vector 不行)的元素作整体移动。对比 vector，deque 中 insert 的代价稍小，对于指定的删除位置 position ，deque 可以选择移动 position 之前或者 position 之后的元素，通常选择移动元素较少的那部分。
+
+程序中首先检测 position 是否为 \_M\_start 或者 \_M\_finish ,如果是则调用 push\_front 或者 push\_back 函数。否则调用 \_M\_insert\_aux 来插入元素。函数返回指向插入元素的迭代器。
+
+	  iterator insert(iterator position, const value_type& __x) {
+	    if (position._M_cur == _M_start._M_cur) {
+	      push_front(__x);
+	      return _M_start;
+	    }
+	    else if (position._M_cur == _M_finish._M_cur) {
+	      push_back(__x);
+	      iterator __tmp = _M_finish;
+	      --__tmp;
+	      return __tmp;
+	    }
+	    else {
+	      return _M_insert_aux(position, __x);
+	    }
+	  }
+
+<div class="cut"></div>
+
+push\_front 函数用于在 deque 的前面插入一个元素。函数首先看 \_M\_start.\_M\_cur 是否和 \_M\_start.\_M\_first 指向同一个位置。如果不是，说明以 \*(\_M\_start.\_M\_node) 为首地址的内存块中还能容纳新的元素，不需要额外申请空间，然后在 \_M\_start.\_M\_cur 之前的位置上构造新的元素，将 \_M\_start 往前移动一个位置。否则新插入的元素需要放在一个新的内存块，需要额外的申请空间，调用 \_push\_front\_aux() 来实现。
+
+	  void push_front(const value_type& __t) {
+	    if (_M_start._M_cur != _M_start._M_first) {
+	      construct(_M_start._M_cur - 1, __t);
+	      --_M_start._M_cur;
+	    }
+	    else
+	      _M_push_front_aux(__t);
+	  }
+
+<div class="cut"></div>
+
+\_M\_push\_front\_aux 函数将指定元素插入到 deque 的首部。函数首先调用 \_M\_reserve\_map\_at\_front 确保 \_M\_map 中在 \_M\_start.\_M\_node 之前还有元素能够用来存储新分配的内存的首地址。然后调用 \_M\_allocate\_node 分配一个新的内存块，并将该内存块的首地址存储在 \_M\_start.\_M\_node 之前的那个位置上。
+
+待插入的元素应该处在新分配的内存块的最后一个位置(因为向前插入元素时，元素是从高地址向低地址生长的，即从 \_\_M\_last 到 \_\_M\_first 的方向)。这样能够保证遍历 deque 中所有元素时，只需要对每一列的元素按从前往后的顺序遍历即可。如果插入到第一个位置，那么整个 deque 的顺序就乱了。
+
+	template <class _Tp, class _Alloc>
+	void  deque<_Tp,_Alloc>::_M_push_front_aux(const value_type& __t)
+	{
+	  value_type __t_copy = __t;
+	  _M_reserve_map_at_front();
+	  *(_M_start._M_node - 1) = _M_allocate_node();
+	  __STL_TRY {
+	    _M_start._M_set_node(_M_start._M_node - 1);
+	    _M_start._M_cur = _M_start._M_last - 1;
+	    construct(_M_start._M_cur, __t_copy);
+	  }
+	  __STL_UNWIND((++_M_start, _M_deallocate_node(*(_M_start._M_node - 1))));
+	} 
+
+<div class="cut"></div>
+
+\_M\_reserve\_map\_at\_front 函数重新调整 \_M\_map 中的元素，调整可能涉及到重新分配空间。因为 \_M\_map 中从 \_M\_start.\_M\_node 到 \_M\_finish.\_M\_node (包括 \_M\_finish.\_M\_node) 之间的元素原先都存储了某个内存块的首地址，这些内存块中都存储着 deque 的元素(以 \*\_M\_finish.\_M\_node 为首地址的内存块可能没有存储 deque 中的元素)。因此如果重新为 \_M\_map 分配空间，则需要将原先 \_M\_map 中的元素拷贝到新空间中，以使得通过 \_M\_map 仍然能够索引到这些内存块。
+
+函数有一个为 1 的缺省实参，程序判断 \_M\_start.\_M\_node 到 \_M\_map 之间还有多少个可用的元素，如果可用的元素个数满足要求的 \_\_nodes\_to\_add，则不需要为 \_M\_map 额外分配空间，否则调用 \_M\_realloc\_map 对 \_M\_map 中的元素进行重新调整。
+
+	  void _M_reserve_map_at_front (size_type __nodes_to_add = 1) {
+	    if (__nodes_to_add > size_type(_M_start._M_node - _M_map))
+	      _M_reallocate_map(__nodes_to_add, true);
+	  }
+
+<div class="cut"></div>
+
+\_M\_reallocate\_map 用来重新调整 \_M\_map 中的元素。重新调整可能伴随这要重新申请空间。
+
+函数首先计算出当前 deque 中内存块的个数 \_old\_num\_nodes，\_M\_map 中从 \_M\_start.\_M\_node 开始到 \_M\_finish.\_M\_node (包括 \_M\_finish.\_M\_node) 之间的元素都存储了对应内存块的首地址。然后计算当前实际需要的内存块个数 \_\_new\_num\_nodes，每个内存块都相应的需要 \_M\_map 中的一个元素来存储它的首地址。
+
+查看 \_M\_map 中的元素个数是否大于 \_\_new\_num\_nodes 的两倍，选择两倍，不是必须的，之所以这样选择是为了避免在更新比较多的场合总是需要频繁的分配内存。如果满足条件，则需要对 \_M\_map 中的元素重新调整，调整只是在 \_M\_map 内部整体的移动其中的元素(假设 deque 中大量的元素都从 deque 的前面进行插入，则会导致 \_M\_start.\_M\_node 和 \_M\_map 比较接近，而 \_M\_finish.\_M\_node 和 \_M\_map + \_M\_map\_size 比较远，这种情况下，就可能需要将 \_M\_map 中的元素整体向后移动，方便 deque 在前面插入新元素)。
+
+函数用一个临时变量 \_\_new\_start 来暂存调整之后 \_M\_start 应该所在的位置，调整之后应保证 \_\_new\_start.\_M\_node 之后\_old\_num\_nodes 个位置上的元素值和调整之前 \_M\_start.\_M\_node 之后 \_old\_num\_nodes 个位置上的元素值是一样的。改变的只是它们在 \_M\_map 上的位置。
+
+设定合适的 \_\_new\_start 的使得 \_\_new\_start 之前和 \_\_new\_start + \_\_new\_num\_nodes - 1 之后都有相同的元素还未被使用(为存储内存块的首地址)。然后根据 \_\_new\_start 在 \_M\_start 之前还是之后，选择调用 copy 或是 copy\_backward 来对 \_M\_map 中的元素进行重新调整。分情况是为了避免复制是出现新复制的内容覆盖将来拟待复制的内容。
+
+如果 \_M\_map 中的元素个数不超过 \_\_new\_num\_nodes 的两倍，则重新为 \_M\_map 分配内存空间，一样用临时变量 \_\_new\_start 暂存调整之后 \_M\_start.\_M\_node 的值。同时为新分配的内存空间从 \_\_new\_start 开始的 \_\_old\_num\_nodes 个元素赋值，赋值的内容为调整之前 \_M\_map 中从 \_M\_start.\_M\_node 到 \_M\_finish.\_M\_node (包括 \_M\_finish.\_M\_node) 之间的元素的值。然后将原先的 \_M\_map 删除。
+
+函数中没有对 \_M\_start 和 \_M\_finish 中的 \_M\_cur 进行修改，因为不需要修改，，调整之前和调整之后 \*\_M\_start.\_M\_node 和 \*\_M\_finish.\_M\_node 的值并没有发生改变。
+
+	template <class _Tp, class _Alloc>
+	void deque<_Tp,_Alloc>::_M_reallocate_map(size_type __nodes_to_add,
+			      bool __add_at_front)
+	{
+	  size_type __old_num_nodes = _M_finish._M_node - _M_start._M_node + 1;
+	  size_type __new_num_nodes = __old_num_nodes + __nodes_to_add;
+
+	  _Map_pointer __new_nstart;
+	  if (_M_map_size > 2 * __new_num_nodes) {
+	    __new_nstart = _M_map + (_M_map_size - __new_num_nodes) / 2 
+		     + (__add_at_front ? __nodes_to_add : 0);
+	    if (__new_nstart < _M_start._M_node)
+	      copy(_M_start._M_node, _M_finish._M_node + 1, __new_nstart);
+	    else
+	      copy_backward(_M_start._M_node, _M_finish._M_node + 1, 
+		    __new_nstart + __old_num_nodes);
+	  }
+	  else {
+	    size_type __new_map_size = 
+	      _M_map_size + max(_M_map_size, __nodes_to_add) + 2;
+
+	    _Map_pointer __new_map = _M_allocate_map(__new_map_size);
+	    __new_nstart = __new_map + (__new_map_size - __new_num_nodes) / 2
+		     + (__add_at_front ? __nodes_to_add : 0);
+	    copy(_M_start._M_node, _M_finish._M_node + 1, __new_nstart);
+	    _M_deallocate_map(_M_map, _M_map_size);
+
+	    _M_map = __new_map;
+	    _M_map_size = __new_map_size;
+	  }
+
+	  _M_start._M_set_node(__new_nstart);
+	  _M_finish._M_set_node(__new_nstart + __old_num_nodes - 1);
+	}
+
+<div class="cut"></div>
+
+[STL 的 deque 分析（一）](../22/deque1.html)</br>
+[STL 的 deque 分析（二）](../22/deque2.html)</br>
+[STL 的 deque 分析（三）](../22/deque3.html)</br>
+[STL 的 deque 分析（四）](../22/deque4.html)</br>
+[STL 的 deque 分析（五）](../22/deque5.html)</br>
+[STL 的 deque 分析（六）](../22/deque6.html)</br>

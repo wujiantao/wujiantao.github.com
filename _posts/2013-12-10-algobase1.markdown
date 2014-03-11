@@ -1,0 +1,285 @@
+---
+title: STL 的 基本算法(algobase) 分析（一）
+layout: post
+key: bc16f036-c9fd-4cc0-977e-07e854204abd
+tags:
+  -algobase 
+  -STL 
+---
+
+stl\_algobase.h 中实现了一些十分基础算法。有些算法在之前介绍的内容中都被调用过。
+####swap, min, max 函数####
+
+\_\_iter\_swap 函数用来实现交换两个迭代器指向的位置上的两个元素(通过解引用获取迭代器指向的位置上的元素)。函数有三个形参，前两个形参表示表示两个迭代器(迭代器的类型可能不同也可能相同)，第三个形参用来引入一个类型，作为交换时中间元素的类型。两个待交换的元素类型没有要求一定要一致，但要求相互之间是可以转化的。同时这两个元素和中间元素之间也要求是可以转化的。
+
+	template <class _ForwardIter1, class _ForwardIter2, class _Tp>
+	inline void __iter_swap(_ForwardIter1 __a, _ForwardIter2 __b, _Tp*) {
+	  _Tp __tmp = *__a;
+	  *__a = *__b;
+	  *__b = __tmp;
+	}
+
+<div class="cut"></div>
+
+iter\_swap 函数也是用来交换两个迭代器指示的位置上的元素。其通过调用 \_\_iter\_swap 来实现这一功能。但 iter\_swap 在调用 \_\_iter\_swap 之前进行了必要的类型检测，因为迭代器 \_\_a 指向的位置上的元素可能无法和迭代器 \_\_b 指向的位置上的元素进行互换，但类型检测无法通过时，会出现编译上的错误，后面的调用也就不会进行。
+
+类型检测的前两句要求类型 \_ForwardIter1 和类型 \_ForwardIter2 是可变的 forward\_iterator。接下来两句要求 ForwardIter1 表示的迭代器中的元素类型与 ForwardIter2 表示的迭代器中的元素类型可以相互转化。具体的类型检测在 concept\_check.h 中有介绍。
+
+	template <class _ForwardIter1, class _ForwardIter2>
+	inline void iter_swap(_ForwardIter1 __a, _ForwardIter2 __b) {
+	  __STL_REQUIRES(_ForwardIter1, _Mutable_ForwardIterator);
+	  __STL_REQUIRES(_ForwardIter2, _Mutable_ForwardIterator);
+	  __STL_CONVERTIBLE(typename iterator_traits<_ForwardIter1>::value_type,
+			    typename iterator_traits<_ForwardIter2>::value_type);
+	  __STL_CONVERTIBLE(typename iterator_traits<_ForwardIter2>::value_type,
+			    typename iterator_traits<_ForwardIter1>::value_type);
+	  __iter_swap(__a, __b, __VALUE_TYPE(__a));
+	}
+
+
+<div class="cut"></div>
+
+swap 函数用来交换两个同类型的变量。函数最前面加入了一个类型检测。要求 \_Tp 类型的变量是可以进行赋值的。其中 \_Tp 类型就是函数形参的类型。
+
+	template <class _Tp>
+	inline void swap(_Tp& __a, _Tp& __b) {
+	  __STL_REQUIRES(_Tp, _Assignable);
+	  _Tp __tmp = __a;
+	  __a = __b;
+	  __b = __tmp;
+	}
+
+<div class="cut"></div>
+
+min 函数返回给定的两个同类型变量中值较小的一个，函数在最前面加入了一个类型检测，要求\_Tp 类型的变量能通过 operator< 进行比较。然后返回较小值。
+
+	template <class _Tp>
+	inline const _Tp& min(const _Tp& __a, const _Tp& __b) {
+	  __STL_REQUIRES(_Tp, _LessThanComparable);
+	  return __b < __a ? __b : __a;
+	}
+	
+<div class="cut"></div>
+
+max 函数返回给定的两个同类型变量中值较大的一个，函数在最前面加入了一个类型检测，要求\_Tp 类型的变量能通过 operator< 进行比较。然后返回较大值。
+
+	template <class _Tp>
+	inline const _Tp& max(const _Tp& __a, const _Tp& __b) {
+	  __STL_REQUIRES(_Tp, _LessThanComparable);
+	  return  __a < __b ? __b : __a;
+	}
+
+<div class="cut"></div>
+
+min 函数返回给定的两个同类型变量中值较小的一个。函数要求用户自定义比较函数来对传入的两个实参进行比较。第三个形参应该为一个函数指针或者是一个函数对象，并且比较函数的返回值应该是可以与 bool 值进行转化的。最后函数返回比较之后较小的那一个变量。
+
+将第三个形参 \_Compare 看成是一个 int (\*) (\_Tp, \_Tp) 类型的函数指针在平时是一种比较常见的做法。但在 STL 中，通常将 \_Compare 看成是一个函数对象。如果 \_Compare 为函数对象，那么其内部应重载 bool operator()(\_Tp&, \_Tp&) 函数。这样声明一个 \_Compare 的实例 \_\_comp 后，\_\_comp 就可以用来向函数指针那样使用了。 \_\_comp(a, b) 实际调用的是 \_\_comp.()(a, b)。
+
+	template <class _Tp, class _Compare>
+	inline const _Tp& min(const _Tp& __a, const _Tp& __b, _Compare __comp) {
+	  return __comp(__b, __a) ? __b : __a;
+	}
+
+
+<div class="cut"></div>
+
+max 函数返回给定的两个同类型变量中值较大的一个。也要求用户自定义比较函数来实现对两个变量的比较。
+
+	template <class _Tp, class _Compare>
+	inline const _Tp& max(const _Tp& __a, const _Tp& __b, _Compare __comp) {
+	  return __comp(__a, __b) ? __b : __a;
+	}
+
+min 和 max 函数中都要求两个变量的类型是严格一致的，但在 swap 中没有这样的要求。
+<div class="cut"></div>
+
+####copy 函数####
+\_\_copy 函数用来将迭代器 \_\_first 和 迭代器 \_\_last(不包括 \_\_last 所在位置的内容) 之间的内容复制到以 \_\_result 指向的位置为起始位置的内存区域。其中根据迭代器的类型不同有两种不同的定义。
+
+第一种定义要求 \_\_first 是 input\_iterator 类型的迭代器。函数逐个将从 \_\_first 到 \_\_last 的元素复制到 \_\_result 开始的位置上。函数没有对迭代器的类型，以及迭代器指示的位置上的元素的类型进行类型检测，是因为 \_\_copy 是一个辅助函数，在调用该函数之前会先进行必要的类型检测，只有在类型检测通过之后才会调用该函数。
+
+	template <class _InputIter, class _OutputIter, class _Distance>
+	inline _OutputIter __copy(_InputIter __first, _InputIter __last,
+				  _OutputIter __result,
+				  input_iterator_tag, _Distance*)
+	{
+	  for ( ; __first != __last; ++__result, ++__first)
+	    *__result = *__first;
+	  return __result;
+	}
+
+<div class="cut"></div>
+
+第二个定义要求 \_\_first 是 random\_access\_iterator 类型的迭代器。函数首先计算 \_\_first 和 \_\_last 之间的差值 \_\_n 。然后循环的将 \_\_first 到 \_\_last 之间的 \_\_n 个元素复制到 \_\_result 开始的位置。
+
+	template <class _RandomAccessIter, class _OutputIter, class _Distance>
+	inline _OutputIter
+	__copy(_RandomAccessIter __first, _RandomAccessIter __last,
+	       _OutputIter __result, random_access_iterator_tag, _Distance*)
+	{
+	  for (_Distance __n = __last - __first; __n > 0; --__n) {
+	    *__result = *__first;
+	    ++__first;
+	    ++__result;
+	  }
+	  return __result;
+	}
+
+<div class="cut"></div>
+
+
+\_\_copy\_trivial 用来对将指针 \_\_first 和指针 \_\_last 限定的一片连续内存区域调用 memmov 复制到为 \_\_result 为起始位置的地址空间。选择 memmove 而不是 memcpy 使得目的地址和源地址之间可以有重叠， memmove 会使用中间内存。而 memcpy 是直接复制。
+
+	template <class _Tp>
+	inline _Tp*
+	__copy_trivial(const _Tp* __first, const _Tp* __last, _Tp* __result) {
+	  memmove(__result, __first, sizeof(_Tp) * (__last - __first));
+	  return __result + (__last - __first);
+	}
+
+<div class="cut"></div>
+
+\_\_copy\_aux2 一共有四个定义，都是用来将 \_\_first 到 \_\_last 之间的内容复制到 \_\_result 开始的位置上。但不同的定义可能是调用 \_\_copy 函数进行复制，也可能是调用 \_\_copy\_trivial 函数进行复制。
+
+\_\_copy\_aux2 函数函数的第一个定义中的宏定义 \_\_ITERATOR\_CATEGORY(\_\_first) 展开是对函数 iterator\_category(\_\_first) 的一个调用，它返回给定迭代器 \_\_first 的成员类型 iterator\_category 的一个实例。  \_\_DISTANCE\_TYPE(\_\_first) 展开是对函数 distance\_type(\_\_first) 的一个调用，它的返回值为指定迭代器 \_\_first 的成员类型 distance\_type 类型的一个空指针。
+
+	template <class _InputIter, class _OutputIter>
+	inline _OutputIter __copy_aux2(_InputIter __first, _InputIter __last,
+				       _OutputIter __result, __false_type) {
+	  return __copy(__first, __last, __result,
+			__ITERATOR_CATEGORY(__first),
+			__DISTANCE_TYPE(__first));
+	}
+
+<div class="cut"></div>
+
+\_\_copy\_aux2 的第二个定义和第一个定义的不同之处在于当前函数的第四个形参为 \_\_true\_type，而第一个定义的第四个形参为 \_\_false\_type 。
+
+	template <class _InputIter, class _OutputIter>
+	inline _OutputIter __copy_aux2(_InputIter __first, _InputIter __last,
+				       _OutputIter __result, __true_type) {
+	  return __copy(__first, __last, __result,
+			__ITERATOR_CATEGORY(__first),
+			__DISTANCE_TYPE(__first));
+	}
+
+<div class="cut"></div>
+
+\_\_copy\_aux2 的第三个定义是对第二个定义的一个偏特化。该偏特化要求第一个和第二个形参都是同类型的指针，第三个形参要是该类型的指针。第四个形参要是 \_true\_type 类型的变量。该偏特化定义中调用 \_\_copy\_trivial 函数进行复制。
+
+	template <class _Tp>
+	inline _Tp* __copy_aux2(_Tp* __first, _Tp* __last, _Tp* __result,
+				__true_type) {
+	  return __copy_trivial(__first, __last, __result);
+	}
+
+<div class="cut"></div>
+
+\_\_copy\_aux2 的第四个定义也是对第二个定义的一个偏特化。该偏特化要求第一个和第二个形参都是同类型的常量指针，第三个形参要是该类型的指针。第四个形参要是 \_true\_type 类型的变量。该偏特化定义中也是调用 \_\_copy\_trivial 进行复制。
+
+	template <class _Tp>
+	inline _Tp* __copy_aux2(const _Tp* __first, const _Tp* __last, _Tp* __result,
+				__true_type) {
+	  return __copy_trivial(__first, __last, __result);
+	}
+
+<div class="cut"></div>
+
+\_\_copy\_aux 通过调用 \_\_copy\_aux2 来将 \_\_first 到 \_\_last 之间的内容复制到 \_\_result 开始的位置上。函数中定义了一个 \_Trivial 的内部类型。根据 \_\_type\_traits<\_Tp> 的定义，当 \_Tp 为基本数据类型或者是指针类型时，\_Trivial 为 \_\_true\_type 的类型别名，否则 \_Trivial 为 \_\_false\_type 的类型别名。
+
+当 \_Tp 为基本数据类型或者是指针类型时(此时 \_Trivial 为 \_\_true\_type的类型别名), \_\_first \_\_last 为 \_Tp 类型的指针或常量指针且 \_\_result 为 \_Tp 类型的指针时。\_\_copy\_aux2 中会再调用 \_\_copy\_trivial 进行复制。其他情况 \_\_copy\_aux2 中都会调用 \_\_copy 进行复制。
+
+	template <class _InputIter, class _OutputIter, class _Tp>
+	inline _OutputIter __copy_aux(_InputIter __first, _InputIter __last,
+				      _OutputIter __result, _Tp*) {
+	  typedef typename __type_traits<_Tp>::has_trivial_assignment_operator
+		  _Trivial;
+	  return __copy_aux2(__first, __last, __result, _Trivial());
+	}
+
+<div class="cut"></div>
+
+copy 函数调用 copy\_aux 将 \_\_first 到 \_\_last 之间的内容复制到 \_\_result 开始的位置。宏定义 \_\_VALUE\_TYPE(\_\_first) 展开为对函数 vlaue\_type(\_\_first) 的一个调用。函数的返回值为指定迭代器 \_\_first 中的成员类型 value\_type 的一个空指针。
+
+copy 函数不对 \_\_result 之后的位置是否能够容纳 \_\_first 到 \_\_last 之间的全部元素进行检测。copy 函数具有良好的通用性，只要给定迭代器中定义了 operator++ ，就能用 copy 函数将两个迭代器限定的区域拷贝到另一个迭代器开始和往后的位置上。
+
+	template <class _InputIter, class _OutputIter>
+	inline _OutputIter copy(_InputIter __first, _InputIter __last,
+				_OutputIter __result) {
+	  __STL_REQUIRES(_InputIter, _InputIterator);
+	  __STL_REQUIRES(_OutputIter, _OutputIterator);
+	  return __copy_aux(__first, __last, __result, __VALUE_TYPE(__first));
+	}
+
+<div class="cut"></div>
+
+####copy 函数的第二种实现####
+
+如果编译器支持类模板的偏特化还可以采用 copy 函数的另一种实现。
+
+类模板 \_\_copy\_dispatch 中定义了三个模板形参，\_InputIter 为输入迭代器的类型，\_OutputIter 为输出迭代器的类型。\_BoolType 用来判断 \_\_first 指向的元素的类型是否为基本数据类型或者指针类型。
+
+类中定义了一个静态函数 copy 。函数调用 \_\_copy 将 \_\_first 到 \_\_last 之间的内容复制到 \_\_result 开始的位置上。
+
+	template <class _InputIter, class _OutputIter, class _BoolType>
+	struct __copy_dispatch {
+	  static _OutputIter copy(_InputIter __first, _InputIter __last,
+				  _OutputIter __result) {
+	    typedef typename iterator_traits<_InputIter>::iterator_category _Category;
+	    typedef typename iterator_traits<_InputIter>::difference_type _Distance;
+	    return __copy(__first, __last, __result, _Category(), (_Distance*) 0);
+	  }
+	};
+
+<div class="cut"></div>
+
+\_\_copy\_dispatch 有一个偏特化定义。 当 \_\_copy\_dispatch 的三个模板形参分别为 \_\_Tp\*, \_\_Tp\*, \_\_true\_type 是采用这个偏特化定义。在该定义中 copy 函数调用 \_\_copy\_trivial 来将 \_\_first 到 \_\_last 之间的内容复制到 \_\_result 开始的位置上。。
+
+	template <class _Tp>
+	struct __copy_dispatch<_Tp*, _Tp*, __true_type>
+	{
+	  static _Tp* copy(const _Tp* __first, const _Tp* __last, _Tp* __result) {
+	    return __copy_trivial(__first, __last, __result);
+	  }
+	};
+
+<div class="cut"></div>
+
+\_\_copy\_dispatch 还有另一个偏特化定义，当三个模板形参分时使用 const \_\_Tp\*, \_\_Tp\*, \_\_true\_type 时使用如下定义。copy 函数也是通过调用 \_\_copy\_trivial 来将 \_\_first 到 \_\_last 之间的内容复制到 \_\_result 开始的位置上。
+
+	template <class _Tp>
+	struct __copy_dispatch<const _Tp*, _Tp*, __true_type>
+	{
+	  static _Tp* copy(const _Tp* __first, const _Tp* __last, _Tp* __result) {
+	    return __copy_trivial(__first, __last, __result);
+	  }
+	};
+
+<div class="cut"></div>
+
+copy 函数中调用 \_\_copy\_dispatch 的静态函数将 \_\_first 到 \_\_last 之间的内容复制到 \_\_result 开始的位置上。
+
+函数首先检测 \_InputIter 是否是输入迭代器，检测 \_OutputIter 是否是输出迭代器。然后通过 iteratoro\_traits 获取到 \_InputIter 中的成员类型 value\_type ，令 \_Tp 为它的类型别名。然后通过 \_\_type\_traits 检测 \_Tp 类型中是否满足 has\_trivial\_assignment\_operator 的要求，当 \_Tp 为基本数据类型或者指针类型是 \_Trivial 为 \_\_true\_type 的类型别名，否则 \_Trivial 为 \_\_false\_type 的类型别名。
+
+最后用 \_InputIter, \_OutputIter, \_Trivial 实例化类模板 \_\_copy\_dispatch ，并用 \_\_first, \_\_last, \_\_result 作为实参调用该实例化的类中的静态成员函数 copy 来将 \_\_first 到 \_\_last 之间的内容复制到 \_\_result 开始的位置。
+
+	template <class _InputIter, class _OutputIter>
+	inline _OutputIter copy(_InputIter __first, _InputIter __last,
+				_OutputIter __result) {
+	  __STL_REQUIRES(_InputIter, _InputIterator);
+	  __STL_REQUIRES(_OutputIter, _OutputIterator);
+	  typedef typename iterator_traits<_InputIter>::value_type _Tp;
+	  typedef typename __type_traits<_Tp>::has_trivial_assignment_operator
+		  _Trivial;
+	  return __copy_dispatch<_InputIter, _OutputIter, _Trivial>
+	    ::copy(__first, __last, __result);
+	}
+
+<div class="cut"></div>
+
+除了以上两种 copy 函数的定义。还有一种最原始的定义。该定义不需要一些额外的特性支持。方法比较原始。这里不再详述。原理和上面的定义比较类似。也是根据不同的类型确定不同的复制方式。遵循的一条原则就是，能够采用 memmov 进行复制的则优先采用 memmov 进行复制。否则再采用自定义的方式进行复制。
+
+<div class="cut"></div>
+
+[STL 的 基本算法(algobase) 分析（一）](../10/algobase1.html)</br>
+[STL 的 基本算法(algobase) 分析（二）](../10/algobase2.html)</br>

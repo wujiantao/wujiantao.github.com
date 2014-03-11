@@ -1,0 +1,219 @@
+---
+title: STL 的 map 分析
+layout: post
+key: d1cf245c-b527-443e-b8b2-72c8ff254a38
+tags:
+  -map 
+  -STL
+---
+
+map 有四个模板形参，其中 key 为关键字类型，\_Tp 为数据类型(map 中的节点实际存储的是 pair<key, \_Tp> 类型的数据， pair<key, \_Tp> 为节点值类型)。\_Compare 是能够对两个节点中的关键字进行比较的函数对象，其缺省实参为 less<\_Key> (less<\_Key> 实例化了 stl\_function.h 中定义的类模板 less，其中重载了一个成员函数bool operator()(\_Key&, \_Key&) )。\_Alloc 是用来为 map 中的节点分配和回收内存的内存分配器，其缺省形参为 allocator<\_Tp>
+
+	template <class _Key, class _Tp, 
+		  class _Compare __STL_DEPENDENT_DEFAULT_TMPL(less<_Key>),
+		  class _Alloc = __STL_DEFAULT_ALLOCATOR(_Tp) >
+	class map;
+
+<div class="cut"></div>
+
+map 中还定义了一些成员类型。
+
+	  typedef _Key                  key_type;
+	  typedef _Tp                   data_type;
+	  typedef _Tp                   mapped_type;
+	  typedef pair<const _Key, _Tp> value_type;
+	  typedef _Compare              key_compare;
+
+<div class="cut"></div>
+
+map 中定义了一个嵌套类 value\_compare 用来比较 map 中节点值类型 (value\_type 类型) 的数据的大小。value\_compare 中定义了一个 \_Compare 类型的成员变量 comp,构造函数中对成员变量 comp 进行初始化，同时重载了 operator() 函数， opertor() 中对两个 value\_type 类型的数据进行大小比较，其实际是通过 comp 对 value\_type 类型数据中的关键字进行比较。map 被设置成 value\_compare 的友元类，使得在 map 中能够访问 value\_compare 的非公有成员。
+
+	  class value_compare
+	    : public binary_function<value_type, value_type, bool> {
+	  friend class map<_Key,_Tp,_Compare,_Alloc>;
+	  protected :
+	    _Compare comp;
+	    value_compare(_Compare __c) : comp(__c) {}
+	  public:
+	    bool operator()(const value_type& __x, const value_type& __y) const {
+	      return comp(__x.first, __y.first);
+	    }
+	  };
+
+<div class="cut"></div>
+
+map 中定义了一个成员类型 \_Rep\_type 。它是 \_Rb\_tree<key\_type, value\_type, \_Select1st<value\_type>, key\_compare, \_Alloc> 类型的类型别名。其中 key\_type 和 value\_type 是前面 map 中定义的成员类型，分别为 \_Key, pair<const \_Key, \_Tp> 的类型别名。\_Select1st<value\_type> 实例化了 stl\_pair.h 中定义的类模板 \_Select1st。其中定义了 value\_type::first\_type operator()(value\_type&) 。它会返回 value\_type 类型的数据中的 first 成员(即 pair<const \_Key, \_Tp> 类型数据的 first。)。key\_compare 为 \_Compare 的类型别名，对红黑树中节点中关键字进行比较。\_Alloc 用来为红黑树中的节点分配和释放内存。
+
+<div class="cut"></div>
+
+同时定义了一个成员变量 \_M\_t ，作为存储 map 中节点的红黑树。
+
+	  typedef _Rb_tree<key_type, value_type, 
+			   _Select1st<value_type>, key_compare, _Alloc> _Rep_type;
+	  _Rep_type _M_t;  // red-black tree representing map
+
+<div class="cut"></div>
+
+map 的空构造函数用 \_Compare 和 allocator\_type(allocator\_type 是 \_Rep\_type::allocator\_type 类型的类型别名) 的缺省值来初始化成员变量 \_M\_t。而第二个构造函数用 \_Compare 类型变量 \_\_comp 和 allocator\_type 类型变量 \_\_a 来初始化 \_M\_t 。
+
+	  map() : _M_t(_Compare(), allocator_type()) {}
+	  explicit map(const _Compare& __comp,
+		       const allocator_type& __a = allocator_type())
+	    : _M_t(__comp, __a) {}
+
+<div class="cut"></div>
+
+以下构造函数中先用 \_Compare 和 allocator\_type 的缺省值初始化成员变量 \_M\_t 。然后调用 \_M\_t 的成员函数 insert\_unique 将 \_\_first 和 \_\_last 限定的区域的内容插入到 \_M\_t 中，并且要求插入的节点的关键字不能相同，如果当前插入的节点的关键字在已插入的节点中存在，则函数 insert\_unique 不会将当前节点插入。
+
+	  template <class _InputIterator>
+	  map(_InputIterator __first, _InputIterator __last)
+	    : _M_t(_Compare(), allocator_type())
+	    { _M_t.insert_unique(__first, __last); }
+
+<div class="cut"></div>
+
+构造函数首先用给定的 \_Compare 类型变量 \_\_comp 和 allocator\_type 类型变量 \_\_a 初始化成员变量 \_M\_t 。然后调用 \_M\_t 的成员函数 insert\_unique 将 \_\_first 到 \_\_last 之间的内容插入到 \_M\_t 中。也同样要求插入的节点的关键字不出现重复。
+
+	  template <class _InputIterator>
+	  map(_InputIterator __first, _InputIterator __last, const _Compare& __comp,
+	      const allocator_type& __a = allocator_type())
+	    : _M_t(__comp, __a) { _M_t.insert_unique(__first, __last); }
+
+<div class="cut"></div>
+
+拷贝构造函数中直接用给定 map 中的成员变量 \_M\_t 来初始化当前 map 中的成员变量 \_M\_t 。
+
+	  map(const map<_Key,_Tp,_Compare,_Alloc>& __x) : _M_t(__x._M_t) {}
+
+<div class="cut"></div>
+
+opertor= 中直接将给定 map 中的成员变量 \_M\_t 赋值给当前 map 的成员变量 \_M\_t。即调用 \_M\_t 的成员函数 operator= 来进行赋值。在 \_M\_t 的成员函数 opertor= 中首先会将当前 \_M\_t 中的节点清空，然后将给定红黑树中的节点复制到当前红黑树。
+
+	  map<_Key,_Tp,_Compare,_Alloc>&
+	  operator=(const map<_Key, _Tp, _Compare, _Alloc>& __x)
+	  {
+	    _M_t = __x._M_t;
+	    return *this; 
+	  }
+
+<div class="cut"></div>
+
+map 中的成员函数 begin(), end(), empty(), size() 都是直接调用 \_M\_t 中对应的 begin(), end(), empty(), size() 函数。
+
+	  iterator begin() { return _M_t.begin(); }
+	  iterator end() { return _M_t.end(); }
+	  bool empty() const { return _M_t.empty(); }
+	  size_type size() const { return _M_t.size(); }
+
+<div class="cut"></div>
+
+operator[] 的实现分两步，首先调用 lower\_bound 查找从 begin() 开始第一个关键字大于或者等于 \_\_k 的节点, 并返回指向该节点的迭代器，将 lower\_bound 的返回值存储在 \_\_i 中。如果 \_\_i 的关键字为 \_\_k 。即关键字为 \_\_k 的节点在 map 中已存在，则不插入关键字为 \_\_k 的节点，否则插入节点值为 pair(\_\_k,\_Tp()) 的节点。并让 \_\_i 指向新插入的节点。函数的返回值为 \_\_i 指向的节点的数据值(\*\_\_i).second(即 \_Tp())
+
+	  _Tp& operator[](const key_type& __k) {
+	    iterator __i = lower_bound(__k);
+	    // __i->first is greater than or equivalent to __k.
+	    if (__i == end() || key_comp()(__k, (*__i).first))
+	      __i = insert(__i, value_type(__k, _Tp()));
+	    return (*__i).second;
+	  }
+
+<div class="cut"></div>
+
+函数 insert 用来插入关键值为 \_\_x 的节点，函数调用 \_M\_t 的 insert\_unique 来插入该节点，如果关键值为 \_\_x 的节点在 \_M\_t 中不存在，则插入成功，返回值是一个 pair<iterator, bool> 类型的数据。其中返回值的 first 成员为一个指向新插入节点的迭代器，返回值的 second 成员为 true。而如果关键值为 \_\_x 的节点已存在，则插入失败，返回值的 first 为一个指向一个无效位置的迭代器，返回值的 second 为 false。
+
+	  pair<iterator,bool> insert(const value_type& __x) 
+	    { return _M_t.insert_unique(__x); }
+
+<div class="cut"></div>
+
+函数 insert 用来在指定位置 position 的前面插入关键值为 \_\_x 节点，调用 \_M\_t 的 insert\_unique 函数来插入该节点，函数会优先将新节点插入到 position 的前面，但如果插在 position 前面违反了二叉查找树的性质，就会选择合适的位置插入。同时要求新插入的节点的关键值之前在红黑树中不存在，否则新节点不会被插入。
+
+	  iterator insert(iterator position, const value_type& __x)
+	    { return _M_t.insert_unique(position, __x); }
+
+<div class="cut"></div>
+
+函数 insert 用来将 \_\_first 到 \_\_last 之间的内容插入到 map 中，也是要求插入的节点的关键字唯一，否则如果待插入的节点的关键字已存在，新节点不会被插入。
+
+	  template <class _InputIterator>
+	  void insert(_InputIterator __first, _InputIterator __last) {
+	    _M_t.insert_unique(__first, __last);
+
+<div class="cut"></div>
+
+erase 函数用来删除指定位置 \_\_position 的节点。
+
+	  void erase(iterator __position) { _M_t.erase(__position); }
+
+<div class="cut"></div>
+
+erase 函数用来删除关键值为 \_\_x 的节点，并返回删除的节点个数，因为 map 中所有节点的关键值各不相同，因此返回值要么为 1 要么为 0 。
+
+	  size_type erase(const key_type& __x) { return _M_t.erase(__x); }
+
+<div class="cut"></div>
+
+erase 函数删除 \_\_first 到 \_\_last 之间的节点，也是调用 \_M\_t 的 erase 函数来实现节点的删除。
+
+	  void erase(iterator __first, iterator __last)
+	    { _M_t.erase(__first, __last); }
+
+<div class="cut"></div>
+
+clear 函数用来情况 map 中的节点，之前的 erase 函数每次删除一个节点之后都需要对红黑树进行调整，以便使红黑树的性质能得以保持。但 clear 函数因为是要将所有节点进行删除，因此不再涉及到对红黑树性质的维护。
+
+	  void clear() { _M_t.clear(); }
+
+<div class="cut"></div>
+
+函数 find 查找给定关键值为 \_\_x 的节点，如果找到，则返回一个指向该节点的迭代器，否则返回一个指向 end() 的迭代器。
+
+	  iterator find(const key_type& __x) { return _M_t.find(__x); }
+
+<div class="cut"></div>
+
+函数 count 查找 map 中关键字为 \_\_x 的节点个数，因为 map 中节点的关键值各不相同，因此返回值要么为 1 要么为 0 。
+
+	  size_type count(const key_type& __x) const {
+	    return _M_t.find(__x) == _M_t.end() ? 0 : 1; 
+	  }
+
+<div class="cut"></div>
+
+函数 lower\_bound 查找从 begin() 开始第一个关键值大于或者等于 \_\_x 的节点，并返回指向该节点的迭代器。
+
+	  iterator lower_bound(const key_type& __x) {return _M_t.lower_bound(__x); }
+
+<div class="cut"></div>
+
+函数 upper\_bound 查找从 begin() 开始指向第一个关键值大于 \_\_x 的节点，并返回指向该节点的迭代器。
+
+	  iterator upper_bound(const key_type& __x) {return _M_t.upper_bound(__x); }
+
+<div class="cut"></div>
+
+函数 equal\_range 实际返回的是 pair(lower\_bound(\_\_x), upper\_bound(\_\_x)) 的值。通过返回 \_M\_t.equal\_range(\_\_x) 的值来实现。
+
+	  pair<iterator,iterator> equal_range(const key_type& __x) {
+	    return _M_t.equal_range(__x);
+	  }
+
+<div class="cut"></div>
+
+operator== 函数用来判断两个 map 是否相等，通过调用 bool opertor==(\_Rep\_type, \_Rep\_type) 来进行比较。因为 operator== 访问了 map 中的私有成员 _M_t 。因此 operator 要被设置为 map 的友元函数。
+
+	template <class _Key, class _Tp, class _Compare, class _Alloc>
+	inline bool operator==(const map<_Key,_Tp,_Compare,_Alloc>& __x, 
+			       const map<_Key,_Tp,_Compare,_Alloc>& __y) {
+	  return __x._M_t == __y._M_t;
+	}
+
+<div class="cut"></div>
+
+operator< 函数用来比较两个 map 的大小，通过调用 bool opertor<(\_Rep\_type, \_Rep\_type) 来进行比较。同样 operator< 也要被设置为 map 的友元函数。
+
+	template <class _Key, class _Tp, class _Compare, class _Alloc>
+	inline bool operator<(const map<_Key,_Tp,_Compare,_Alloc>& __x, 
+			      const map<_Key,_Tp,_Compare,_Alloc>& __y) {
+	  return __x._M_t < __y._M_t;
+	}

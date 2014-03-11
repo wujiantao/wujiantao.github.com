@@ -1,0 +1,296 @@
+---
+title: STL 的 rope 分析（六）
+layout: post
+key: 0abe12dd-02e5-4177-84bf-69a7377412d6
+tags:
+  -rope 
+  -STL
+---
+
+
+<div class="cut"></div>
+
+函数 \_S\_concat\_char\_iter 将从 \_\_s 开始长度为 \_\_slen 的元素序列插入到 \_\_r 表示的 rope 的尾部。如果 \_\_len == 0 ，则直接返回 \_\_r。如果 \_\_r == 0 ，则用 \_\_s 中长度为 \_\_slen 的序列构造一个新的 \_S\_leaf 类型的节点作为返回值返回。
+
+否则如果 \_\_r 节点为 \_S\_leaf 节点，并且 \_\_r->\_M\_size + \_slen <= \_S\_copy\_max ，则调用 \_S\_leaf\_concat\_char\_iter 用 \_\_r 和 \_\_s 构造一个新节点。
+如果 \_\_r 节点的类型为 \_S\_concat ，但其右子节点的类型为 \_S\_leaf。令 \_\_left 为其左子节点，\_\_right 为其右子节点。如果 \_\_right->\_M\_size + \_\_slen <= \_S\_copy\_max。则调用 \_S\_leaf\_concat\_char\_iter 用 \_\_right 和 \_\_s 构造一个新节点 \_\_nright。然后将 \_\_left 和 \_\_nright 拼接成一个得到一个新节点。
+如果以上的条件都不成立，则直接用 \_\_s 中的 \_\_slen 个元素够着一个 \_S\_leaf 类型的新节点 \_\_nright，然后调用 \_S\_tree\_concat 将 \_r 和 \_\_nright 进行拼接得到一个新节点。
+
+	template <class _CharT, class _Alloc>
+	rope<_CharT,_Alloc>::_RopeRep* rope<_CharT,_Alloc>::_S_concat_char_iter
+			(_RopeRep* __r, const _CharT*__s, size_t __slen)
+	{
+	    _RopeRep* __result;
+	    if (0 == __slen) {
+		_S_ref(__r);
+		return __r;
+	    }
+	    if (0 == __r)
+	      return __STL_ROPE_FROM_UNOWNED_CHAR_PTR(__s, __slen,
+						      __r->get_allocator());
+	    if (_RopeRep::_S_leaf == __r->_M_tag && 
+		  __r->_M_size + __slen <= _S_copy_max) {
+		__result = _S_leaf_concat_char_iter((_RopeLeaf*)__r, __s, __slen);
+		return __result;
+	    }
+	    if (_RopeRep::_S_concat == __r->_M_tag
+		&& _RopeRep::_S_leaf == ((_RopeConcatenation*)__r)->_M_right->_M_tag) {
+		_RopeLeaf* __right = 
+		  (_RopeLeaf* )(((_RopeConcatenation* )__r)->_M_right);
+		if (__right->_M_size + __slen <= _S_copy_max) {
+		  _RopeRep* __left = ((_RopeConcatenation*)__r)->_M_left;
+		  _RopeRep* __nright = 
+		    _S_leaf_concat_char_iter((_RopeLeaf*)__right, __s, __slen);
+		  __left->_M_ref_nonnil();
+		  __STL_TRY {
+		    __result = _S_tree_concat(__left, __nright);
+		  }
+		  __STL_UNWIND(_S_unref(__left); _S_unref(__nright));
+		  return __result;
+		}
+	    }
+	    _RopeRep* __nright =
+	      __STL_ROPE_FROM_UNOWNED_CHAR_PTR(__s, __slen, __r->get_allocator());
+	    __STL_TRY {
+	      __r->_M_ref_nonnil();
+	      __result = _S_tree_concat(__r, __nright);
+	    }
+	    __STL_UNWIND(_S_unref(__r); _S_unref(__nright));
+	    return __result;
+	}
+
+<div class="cut"></div>
+
+函数 \_S\_destr\_concat\_char\_iter 直接调用上面定义的 \_S\_concat\_char\_iter 将 \_\_iter 中的长度为 \_\_slen 的内容插入到 \_\_r 表示的 rope 的后面。
+
+	static _RopeRep* _S_destr_concat_char_iter(_RopeRep* __r,
+			  const _CharT* __iter, size_t __slen)
+	    { return _S_concat_char_iter(__r, __iter, __slen); }
+
+<div class="cut"></div>
+
+
+函数 apply\_to\_pieces 调用之前定义的 \_S\_apply\_to\_pieces 函数将当前 rope 中从 \_\_begin 到 \_\_end 中的元素应该 \_\_c 中定义的操作。
+
+    void apply_to_pieces( size_t __begin, size_t __end,
+                          _Rope_char_consumer<_CharT>& __c) const {
+        _S_apply_to_pieces(__c, _M_tree_ptr, __begin, __end);
+    }
+
+<div class="cut"></div>
+
+函数 \_S\_rounded\_up\_size 返回足够容纳 \_\_n 个元素需要的空间。
+
+	static size\_t \_S\_rounded\_up\_size(size\_t \_\_n) {
+	    return _RopeLeaf::_S_rounded_up_size(__n);
+	}
+
+<div class="cut"></div>
+
+函数 \_S\_new\_RopeLeaf 用给定的长度为 \_\_size 的元素序列 \_\_s 构造一个 \_S\_Leaf 类型的 rope 节点。
+
+	static _RopeLeaf* _S_new_RopeLeaf(__GC_CONST _CharT *__s,
+					  size_t __size, allocator_type __a)
+	{
+	      _RopeLeaf* __space = _LAllocator(__a).allocate(1);
+	    return new(__space) _RopeLeaf(__s, __size, __a);
+	}
+
+<div class="cut"></div>
+
+函数 \_S\_new\_RopeConcatenation 用给定的左子节点和右子节点构造一个 \_S\_concat 类型的 rope 节点。
+
+        static _RopeConcatenation* _S_new_RopeConcatenation(
+                        _RopeRep* __left, _RopeRep* __right,
+                        allocator_type __a)
+        {
+              _RopeConcatenation* __space = _CAllocator(__a).allocate(1);
+            return new(__space) _RopeConcatenation(__left, __right, __a);
+        }
+
+<div class="cut"></div>
+
+函数 \_S\_new\_RopeFunction 用给定的生成函数 \_\_f (该生成函数能够生成长度为 \_\_size 的元素序列) 构造一个 \_S\_function 类型的 rope 节点。
+
+        static _RopeFunction* _S_new_RopeFunction(char_producer<_CharT>* __f,
+                size_t __size, bool __d, allocator_type __a)
+        {
+              _RopeFunction* __space = _FAllocator(__a).allocate(1);
+            return new(__space) _RopeFunction(__f, __size, __d, __a);
+        }
+
+<div class="cut"></div>
+
+函数 \_S\_new\_RopeSubstring 用给的 rope 节点 (该节点类型只能是 \_S\_leaf, \_S\_function, \_S\_substringfn 三种类型) 构造一个 \_S\_substringfn 类型的节点。
+        static _RopeSubstring* _S_new_RopeSubstring(
+                _Rope_RopeRep<_CharT,_Alloc>* __b, size_t __s,
+                size_t __l, allocator_type __a)
+        {
+              _RopeSubstring* __space = _SAllocator(__a).allocate(1);
+            return new(__space) _RopeSubstring(__b, __s, __l, __a);
+        }
+
+<div class="cut"></div>
+
+函数 \_S\_RopeLeaf\_from\_unowned\_char\_ptr 用给定的长度为 \_\_size 的元素序列的拷贝构造一个 \_S\_leaf 类型的 rope  节点。同时一个展开为该函数调用的一个宏定义 \_STL\_ROPE\_FROM\_UNOWNED\_CHAR\_PTR，在文件中调用函数 \_S\_RopeLeaf\_from\_unowned\_char\_ptr 是通过该宏定义来进行调用。
+
+          static _RopeLeaf* _S_RopeLeaf_from_unowned_char_ptr(const _CharT *__s,
+                       size_t __size, allocator_type __a)
+
+	#         define __STL_ROPE_FROM_UNOWNED_CHAR_PTR(__s, __size, __a) \
+                _S_RopeLeaf_from_unowned_char_ptr(__s, __size, __a)     
+
+        {
+            if (0 == __size) return 0;
+              _CharT* __buf = __a.allocate(_S_rounded_up_size(__size));
+              allocator_type __a = allocator_type();
+
+            uninitialized_copy_n(__s, __size, __buf);
+            _S_cond_store_eos(__buf[__size]);
+            __STL_TRY {
+              return _S_new_RopeLeaf(__buf, __size, __a);
+            }
+            __STL_UNWIND(_RopeRep::__STL_FREE_STRING(__buf, __size, __a))
+        }
+
+<div class="cut"></div>
+
+函数 \_S\_concat 将 \_\_left 表示的 rope 和 \_\_right 表示的 rope 拼接成一个 rope。如果 \_\_left 为空，返回 \_\_right ,如果 \_\_right 为空，返回 \_\_left。
+如果 \_\_right 为 \_S\_leaf 类型的节点，且 \_\_left 也为 \_S\_leaf 类型的节点。如果 \_\_left->\_M\_size + \_\_right->\_M\_size <= \_S\_copy\_max ，则调用 \_S\_leaf\_concat\_char\_iter 将 \_\_right 中的 \_M\_data 插入到 \_\_left 的后面。
+
+如果 \_\_right 为 \_S\_leaf 类型的节点，而 left 的右子节点也为 \_S\_leaf 类型的节点，令 \_\_leftleft 为 left 的左子节点，\_\_leftright 为 \_\_left 的右子节点。如果 \_\_leftright->\_M\_size + right->\_M\_size <= \_S\_copy\_max。则直接调用 \_S\_leaf\_concat\_char\_iter 将 \_\_right 中 \_M\_data 的内容插入到 \_\_leftright 的后面的到一个新节点存储在 \_\_rest 中，再调用 \_S\_tree\_concat 将 \_\_leftleft 和 \_\_rest 进行拼接。
+
+如果以上条件都不成立则调用 \_S\_tree\_concat 将 \_\_left 和 \_\_right 进行拼接。
+
+	template <class _CharT, class _Alloc>
+	rope<_CharT,_Alloc>::_RopeRep*
+	rope<_CharT,_Alloc>::_S_concat(_RopeRep* __left, _RopeRep* __right)
+	{
+	    if (0 == __left) {
+		///_S_ref(__right);
+		return __right;
+	    }
+	    if (0 == __right) {
+		///__left->_M_ref_nonnil();
+		return __left;
+	    }
+	    if (_RopeRep::_S_leaf == __right->_M_tag) {
+		if (_RopeRep::_S_leaf == __left->_M_tag) {
+		  if (__right->_M_size + __left->_M_size <= _S_copy_max) {
+		    return _S_leaf_concat_char_iter((_RopeLeaf*)__left,
+						 ((_RopeLeaf*)__right)->_M_data,
+						 __right->_M_size);
+		  }
+		} else if (_RopeRep::_S_concat == __left->_M_tag
+			   && _RopeRep::_S_leaf ==
+			      ((_RopeConcatenation*)__left)->_M_right->_M_tag) {
+		  _RopeLeaf* __leftright =
+			    (_RopeLeaf*)(((_RopeConcatenation*)__left)->_M_right); 
+		  if (__leftright->_M_size + __right->_M_size <= _S_copy_max) {
+		    _RopeRep* __leftleft = ((_RopeConcatenation*)__left)->_M_left;
+		    _RopeRep* __rest = _S_leaf_concat_char_iter(__leftright,
+						   ((_RopeLeaf*)__right)->_M_data,
+						   __right->_M_size);
+		   /// __leftleft->_M_ref_nonnil();
+		    __STL_TRY {
+		      return(_S_tree_concat(__leftleft, __rest));
+		    }
+		    __STL_UNWIND(_S_unref(__leftleft); _S_unref(__rest))
+		  }
+		}
+	    }
+	    //__left->_M_ref_nonnil();
+	    //__right->_M_ref_nonnil();
+	    __STL_TRY {
+	      return(_S_tree_concat(__left, __right));
+	    }
+	    __STL_UNWIND(_S_unref(__left); _S_unref(__right));
+	}
+
+<div class="cut"></div>
+
+函数 \_S\_tree\_concat 将 \_\_left 表示的 rope 和 \_\_right 表示的 rope 进行拼接，与 S\_concat 不同的是，\_\_left 和 \_\_righ 都非空，并且如果得到的新节点表示的 rope 深度过深，并且树较不平衡，则调用 \_S\_balance 调整以该节点为根的树。
+
+函数中首先用 \_\_left 和 \_\_right 构造一个类型为 \_S\_leaf 的新节点，并将 \_\_left 和 \_\_right 分别作为其左子节点和右子节点。将新节点存储在 \_\_result 中。令 \_\_depth 为新节点的深度。如果 \_\_depth > 20 并且 \_\_result->\_M\_size < 1000 或者 \_\_depth 已经超过了允许的最大深度 \_S\_max\_rope\_depth，则调用 \_S\_balance 对 \_\_result 为根的树进行调整，经过 \_S\_balalce 调整之后的树能保证是一个 almost balanced tree(这是我个人自己的认为，可能有误)。
+
+	template <class _CharT, class _Alloc>
+	rope<_CharT,_Alloc>::_RopeRep*
+	rope<_CharT,_Alloc>::_S_tree_concat (_RopeRep* __left, _RopeRep* __right)
+	{
+	    _RopeConcatenation* __result =
+	      _S_new_RopeConcatenation(__left, __right, __left->get_allocator());
+	    size_t __depth = __result->_M_depth;
+	    
+	#   ifdef __STL_USE_STD_ALLOCATORS
+	      __stl_assert(__left->get_allocator() == __right->get_allocator());
+	#   endif
+	    if (__depth > 20 && (__result->_M_size < 1000 ||
+				 __depth > _RopeRep::_S_max_rope_depth)) {
+		_RopeRep* __balanced;
+	      
+		__STL_TRY {
+		   __balanced = _S_balance(__result);
+		   ///__result->_M_unref_nonnil();
+		}
+		__STL_UNWIND((_C_deallocate(__result,1)));
+			// In case of exception, we need to deallocate
+			// otherwise dangling result node.  But caller
+			// still owns its children.  Thus unref is
+			// inappropriate.
+		return __balanced;
+	    } else {
+		return __result;
+	    }
+	}
+
+<div class="cut"></div>
+
+函数 \_S\_leaf\_concat\_char\_iter 将 \_\_iter 中长度为 \_\_len 的元素序列插入到 \_\_r 表示的 rope 后面。
+
+首先调用函数的前提是 \_\_r 为 \_S\_leaf 类型，其次 \_\_r->\_M\_size + \_\_len <= \_S\_copy\_max 。函数首先分配一个足够容纳 \_\_r->\_M\_size + \_\_len 个元素的空间。并用 \_\_new\_data 暂存该新空间的首地址，再将 \_\_r->\_M\_data 和 \_\_iter 中的内容前后拷贝到 \_\_new\_data 中，最后用 \_\_new\_data 中的内容构造一个类型为 \_S\_leaf 的新节点。
+
+	template <class _CharT, class _Alloc>
+	rope<_CharT,_Alloc>::_RopeLeaf*
+	rope<_CharT,_Alloc>::_S_leaf_concat_char_iter
+			(_RopeLeaf* __r, const _CharT* __iter, size_t __len)
+	{
+	    size_t __old_len = __r->_M_size;
+	    _CharT* __new_data = (_CharT*)
+		_Data_allocate(_S_rounded_up_size(__old_len + __len));
+	    _RopeLeaf* __result;
+	    
+	    uninitialized_copy_n(__r->_M_data, __old_len, __new_data);
+	    uninitialized_copy_n(__iter, __len, __new_data + __old_len);
+	    _S_cond_store_eos(__new_data[__old_len + __len]);
+	    __STL_TRY {
+		__result = _S_new_RopeLeaf(__new_data, __old_len + __len,
+					   __r->get_allocator());
+	    }
+	    __STL_UNWIND(_RopeRep::__STL_FREE_STRING(__new_data, __old_len + __len,
+						     __r->get_allocator()));
+	    return __result;
+	}
+
+<div class="cut"></div>
+
+函数 \_S\_char\_ptr\_len 计算一个元素序列的长度。
+
+	template <class _CharT, class _Alloc>
+	inline size_t 
+	rope<_CharT,_Alloc>::_S_char_ptr_len(const _CharT* __s)
+	{
+	    const _CharT* __p = __s;
+
+	    while (!_S_is0(*__p)) { ++__p; }
+	    return (__p - __s);
+	}
+
+<div class="cut"></div>
+
+[STL 的 rope 分析（一）](../03/rope1.html)</br>
+[STL 的 rope 分析（二）](../03/rope2.html)</br>
+[STL 的 rope 分析（三）](../03/rope3.html)</br>
+[STL 的 rope 分析（四）](../03/rope4.html)</br>
+[STL 的 rope 分析（五）](../03/rope5.html)</br>
+[STL 的 rope 分析（六）](../03/rope6.html)</br>
+[STL 的 rope 分析（七）](../03/rope7.html)</br>

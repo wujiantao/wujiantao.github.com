@@ -1,0 +1,12 @@
+---
+title: STL 的 multiset 分析
+layout: post
+key: 3c390acd-9bf0-422c-9cbf-10177164d7f3
+tags:
+  -multiset
+  -STL
+---
+
+multiset 和 set 的定义与实现几乎别无二致，直接拿 set 的定义然后关键字替换成 multiset 基本上就可以拿来作为 multiset 的定义了，除了有两个小区别。，一个是 set 的节点插入是调用红黑树的 insert\_unique 函数，因为 set 中不允许存在关键值一样的不同元素。而 multiset 中节点插入调用的是红黑树中的 insert\_equal 函数，这是因为 multiset 中允许存在关键值相同的不同元素。另外一点区别就是 set 中 count 函数用于返回等于某个给定关键值的元素个数，最多只可能为 1。而 multiset 中则可能为 0 到 size() 中的任何一个数。
+
+multiset 的详细定义不再赘述，可参看 [set](../22/set.html) 的定义，二者不同的地方上面已经叙述。

@@ -1,0 +1,325 @@
+---
+title: STL 的 基本算法(algobase) 分析（二）
+layout: post
+key: e24f5360-32b2-4644-80c8-35cbbb521519
+tags:
+  -algobase 
+  -STL 
+---
+
+####copy\_backward 函数####
+
+\_\_copy\_backward 函数有两个定义，函数将 \_\_first 到 \_\_last(不包括 \_\_last 所在位置的内容) 之间的内容复制到以 \_\_result 为截止位置的区域(不包含 \_\_result 所在的位置)。与 copy 不同的是，copy\_backward 是从后往前进行复制(\_\_last 到 \_\_first 的方向)，但 copy 是从前往后进行复制(\_\_first 到 \_\_last 的方向)。函数返回复制完成之后源地址的首地址
+
+第一个定义要求 \_\_first 和 \_\_result 都为 bidirectional\_iterator 类型的迭代器。函数中将源地址从 \_\_last - 1 开始到 \_\_first (包括 \_\_first 所在的位置) 中的元素逐个的复制到从 \_\_result - 1 开始往前的位置上。表达式中前置运算符 ++ 的优先级比运算符 \* 的优先级要高。赋值之前会先将\_\_last 和 \_\_result 向前移动一个位置。然后再进行赋值。
+
+	template <class _BidirectionalIter1, class _BidirectionalIter2, 
+		  class _Distance>
+	inline _BidirectionalIter2 __copy_backward(_BidirectionalIter1 __first, 
+						   _BidirectionalIter1 __last, 
+						   _BidirectionalIter2 __result,
+						   bidirectional_iterator_tag,
+						   _Distance*)
+	{
+	  while (__first != __last)
+	    *--__result = *--__last;
+	  return __result;
+	}
+
+<div class="cut"></div>
+
+第二个定义要求 \_\_first 为 random\_access\_iterator 类型的迭代器，\_\_result 为 bidirectional\_iterator 类型的迭代器。函数首先计算出 \_\_first 到 \_\_last 之间的元素个数 \_\_n 。再将 \_\_n 作为循环变量，逐个的将 \_\_last - 1 到 \_\_first (包括 \_\_first 所在位置的元素) 中的元素逐个的复制到 \_\_result - 1开始往前的位置上。
+
+	template <class _RandomAccessIter, class _BidirectionalIter, class _Distance>
+	inline _BidirectionalIter __copy_backward(_RandomAccessIter __first, 
+						  _RandomAccessIter __last, 
+						  _BidirectionalIter __result,
+						  random_access_iterator_tag,
+						  _Distance*)
+	{
+	  for (_Distance __n = __last - __first; __n > 0; --__n)
+	    *--__result = *--__last;
+	  return __result;
+	}
+
+<div class="cut"></div>
+
+类模板 \_\_copy\_backward\_dispatch 中有三个模板形参，\_BidirectionalIter1 用来表示限定源地址的迭代器类型，\_BidirectionalIter2 用来表示限定目的地址的迭代器类型，\_BoolType 用来表示 \_BidirectionalIter2 类型的迭代器指向的元素的类型是否为基本数据类型或者指针类型。
+
+\_\_copy\_backward\_dispatch 中定义了一个静态函数 copy 。copy 函数调用 \_\_copy\_backward 将 \_\_first 到 \_\_last 之间的内容复制到以 \_\_result 为结束地址的位置上。
+
+	template <class _BidirectionalIter1, class _BidirectionalIter2,
+		  class _BoolType>
+	struct __copy_backward_dispatch
+	{
+	  typedef typename iterator_traits<_BidirectionalIter1>::iterator_category 
+		  _Cat;
+	  typedef typename iterator_traits<_BidirectionalIter1>::difference_type
+		  _Distance;
+
+	  static _BidirectionalIter2 copy(_BidirectionalIter1 __first, 
+					  _BidirectionalIter1 __last, 
+					  _BidirectionalIter2 __result) {
+	    return __copy_backward(__first, __last, __result, _Cat(), (_Distance*) 0);
+	  }
+	};
+
+<div class="cut"></div>
+
+\_\_copy\_backward\_dispatch 有一个偏特化定义，当类模板的三个模板形参分别为 \_Tp\*, \_Tp\*, \_\_true\_type 时，使用该定义。其内部也定义了 copy 函数，copy 函数通过调用 memmove 将 \_\_first 到 \_\_last 中的内容复制到以 \_\_result 结束位置的地址上。在 memmove 中元素的复制方向还是从前往后的，但 memmove 在复制时使用了辅助空间，从前往后和从后往前效果是一样的。
+
+	template <class _Tp>
+	struct __copy_backward_dispatch<_Tp*, _Tp*, __true_type>
+	{
+	  static _Tp* copy(const _Tp* __first, const _Tp* __last, _Tp* __result) {
+	    const ptrdiff_t _Num = __last - __first;
+	    memmove(__result - _Num, __first, sizeof(_Tp) * _Num);
+	    return __result - _Num;
+	  }
+	};
+
+<div class="cut"></div>
+
+\_\_copy\_backward\_dispatch 还有另一个偏特化定义，当类模板的三个模板形参分别为 const \_Tp\*, const \_Tp\*, \_\_true\_type 时，使用该定义。其内部也定义了 copy 函数，copy 函数通过调用 memmove 将 \_\_first 到 \_\_last 中的内容复制到以 \_\_result 结束位置的地址上。
+
+	template <class _Tp>
+	struct __copy_backward_dispatch<const _Tp*, _Tp*, __true_type>
+	{
+	  static _Tp* copy(const _Tp* __first, const _Tp* __last, _Tp* __result) {
+	    return  __copy_backward_dispatch<_Tp*, _Tp*, __true_type>
+	      ::copy(__first, __last, __result);
+	  }
+	};
+
+<div class="cut"></div>
+
+copy\_backward 函数中定义了一个内部类型 \_Trivial，当 \_BI2 类型的迭代器中其成员类型 value\_type 为基本数据类型或者指针类型时 \_Trivial 为 \_\_true\_type 的类型别名，否则 \_Trivial 为 \_\_false\_typ 的类型别名。函数用 \_BI1, \_BI2, \_Trivial 三个模板实参初始化类模板 \_\_copy\_dispatch，并用实参 \_\_first, \_\_last, \_\_result 作为实参调用该实例化类的静态成员函数 copy 来将 \_\_first 到 \_\_last 之间的内容复制到以 \_\_result 作为结束地址的位置上(复制的方向从后往前)。
+
+	template <class _BI1, class _BI2>
+	inline _BI2 copy_backward(_BI1 __first, _BI1 __last, _BI2 __result) {
+	  __STL_REQUIRES(_BI1, _BidirectionalIterator);
+	  __STL_REQUIRES(_BI2, _Mutable_BidirectionalIterator);
+	  __STL_CONVERTIBLE(typename iterator_traits<_BI1>::value_type,
+			    typename iterator_traits<_BI2>::value_type);
+	  typedef typename __type_traits<typename iterator_traits<_BI2>::value_type>
+				::has_trivial_assignment_operator
+		  _Trivial;
+	  return __copy_backward_dispatch<_BI1, _BI2, _Trivial>
+		      ::copy(__first, __last, __result);
+	}
+
+<div class="cut"></div>
+
+
+fill 函数用指定值 \_\_value 来填充 \_\_first 到 \_\_last 之间的内容。
+
+	template <class _ForwardIter, class _Tp>
+	void fill(_ForwardIter __first, _ForwardIter __last, const _Tp& __value) {
+	  __STL_REQUIRES(_ForwardIter, _Mutable_ForwardIterator);
+	  for ( ; __first != __last; ++__first)
+	    *__first = __value;
+	}
+
+<div class="cut"></div>
+
+fill 函数有三个偏特化定义，当函数的三个形参分别为 unsigned char\*, unsigned char\*, const unsigned char& 或者 signed char\*, signed char\*, const unsigned char& 抑或是 char\*, char\*, const char& 时使用各自的偏特化定义。
+
+在三个偏特化定义中都使用 memset 函数来将值为 \_\_c 的元素填充到 \_\_first 到 \_\_last 之间。 memset 函数只能进行逐字节填充。如果 memset 的第二个参数 (即填充值) 超出了一个字节，高位部分会被截取，只会取最低位的那个字节作为填充值。 
+
+	inline void fill(unsigned char* __first, unsigned char* __last,
+			 const unsigned char& __c) {
+	  unsigned char __tmp = __c;
+	  memset(__first, __tmp, __last - __first);
+	}
+	inline void fill(signed char* __first, signed char* __last,
+			 const signed char& __c) {
+	  signed char __tmp = __c;
+	  memset(__first, static_cast<unsigned char>(__tmp), __last - __first);
+	}
+	inline void fill(char* __first, char* __last, const char& __c) {
+	  char __tmp = __c;
+	  memset(__first, static_cast<unsigned char>(__tmp), __last - __first);
+	}
+
+<div class="cut"></div>
+
+
+fill\_n 用来指定值 \_\_value 填充从 \_\_first 开始往后的 \_\_n 个位置。
+
+	template <class _OutputIter, class _Size, class _Tp>
+	_OutputIter fill_n(_OutputIter __first, _Size __n, const _Tp& __value) {
+	  __STL_REQUIRES(_OutputIter, _OutputIterator);
+	  for ( ; __n > 0; --__n, ++__first)
+	    *__first = __value;
+	  return __first;
+	}
+
+<div class="cut"></div>
+
+fill\_n 函数也有三个偏特化的定义，当函数的三个形参分别为 unsigned char\*, \_Size, const unsigned char& 或者 char\*, \_Size, const unsigned char& 抑或是 char\*, \_Size, const char& 时使用各自的偏特化定义。该这三偏特化定义中通过调用 fill 函数来实现填充的功能。
+
+	template <class _Size>
+	inline unsigned char* fill_n(unsigned char* __first, _Size __n,
+				     const unsigned char& __c) {
+	  fill(__first, __first + __n, __c);
+	  return __first + __n;
+	}
+	template <class _Size>
+	inline signed char* fill_n(char* __first, _Size __n,
+				   const signed char& __c) {
+	  fill(__first, __first + __n, __c);
+	  return __first + __n;
+	}
+	template <class _Size>
+	inline char* fill_n(char* __first, _Size __n, const char& __c) {
+	  fill(__first, __first + __n, __c);
+	  return __first + __n;
+	}
+
+<div class="cut"></div>
+
+mismatch 函数通过对由迭代器指示的两片区域的元素进行逐个比较，判断他们对应位置的元素是否相等，如果不等返回第一个不等的元素在第一片区域中的地址。
+
+方法就是将第一片区域的起始位置上的元素和第二片区域的起始位置上的元素进行比较。然后依次往后进行逐个比较。程序没有对第二片区域的大小进行检测。要求程序员自己保证待比较的区域不会越界，所以第二片区域的大小至少不能小于第一片区域的大小。函数的返回值为两片区域第一次出现不等的位置，或者是第一片区域的结束位置(即 \_\_last1) 。
+
+	template <class _InputIter1, class _InputIter2>
+	pair<_InputIter1, _InputIter2> mismatch(_InputIter1 __first1,
+						_InputIter1 __last1,
+						_InputIter2 __first2) {
+	  __STL_REQUIRES(_InputIter1, _InputIterator);
+	  __STL_REQUIRES(_InputIter2, _InputIterator);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter1>::value_type,
+			 _EqualityComparable);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter2>::value_type,
+			 _EqualityComparable);
+	  while (__first1 != __last1 && *__first1 == *__first2) {
+	    ++__first1;
+	    ++__first2;
+	  }
+	  return pair<_InputIter1, _InputIter2>(__first1, __first2);
+	}
+
+<div class="cut"></div>
+
+当前的 mismatch 函数要求用户提供自定义的判断函数。\_BinaryPredicate 可以是一个函数指针也可以是一个函数对象。
+
+	template <class _InputIter1, class _InputIter2, class _BinaryPredicate>
+	pair<_InputIter1, _InputIter2> mismatch(_InputIter1 __first1,
+						_InputIter1 __last1,
+						_InputIter2 __first2,
+						_BinaryPredicate __binary_pred) {
+	  __STL_REQUIRES(_InputIter1, _InputIterator);
+	  __STL_REQUIRES(_InputIter2, _InputIterator);
+	  while (__first1 != __last1 && __binary_pred(*__first1, *__first2)) {
+	    ++__first1;
+	    ++__first2;
+	  }
+	  return pair<_InputIter1, _InputIter2>(__first1, __first2);
+	}
+
+<div class="cut"></div>
+
+equal 函数返回由迭代器限定的两片区域上对应位置的元素是否相等。函数也不对第二片区域的结束位置进行限定，因此要保证第二片区域的大小至少不小于第一片区域的大小。
+
+	template <class _InputIter1, class _InputIter2>
+	inline bool equal(_InputIter1 __first1, _InputIter1 __last1,
+			  _InputIter2 __first2) {
+	  __STL_REQUIRES(_InputIter1, _InputIterator);
+	  __STL_REQUIRES(_InputIter2, _InputIterator);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter1>::value_type,
+			 _EqualityComparable);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter2>::value_type,
+			 _EqualityComparable);
+	  for ( ; __first1 != __last1; ++__first1, ++__first2)
+	    if (*__first1 != *__first2)
+	      return false;
+	  return true;
+	}
+
+<div class="cut"></div>
+
+equal 函数用用户自定义的判断函数来检测两片区域是否相等。\_BinaryPredicate 可以为函数指针也可以为函数对象。
+
+	template <class _InputIter1, class _InputIter2, class _BinaryPredicate>
+	inline bool equal(_InputIter1 __first1, _InputIter1 __last1,
+			  _InputIter2 __first2, _BinaryPredicate __binary_pred) {
+	  __STL_REQUIRES(_InputIter1, _InputIterator);
+	  __STL_REQUIRES(_InputIter2, _InputIterator);
+	  for ( ; __first1 != __last1; ++__first1, ++__first2)
+	    if (!__binary_pred(*__first1, *__first2))
+	      return false;
+	  return true;
+	}
+
+
+<div class="cut"></div>
+
+lexicographical\_compare 用来比较由迭代器限定的两片区域的大小。函数中首先进行了必要的类型检测。要求迭代器指向的元素支持 < 进行比较。for 循环中对 \_\_first1 和 \_\_last1 包围的区域，同 \_\_first2 和 \_\_last2 包围的区域进行逐个的比较。
+
+如果当前比较过程中，第一区域的元素比第二区域的元素要小(隐含之前的比较过程中，对应位置的元素都是相等的，否则循环不会执行到当前位置)，则按字典序第一区域的内容要小于第二区域的内容。反之如果第一区域的元素要比第二区域的元素要大，则说明按字典序第一区域的内容要比第二区域要大。如果某个区域中的元素都比较完了还没有遇到不等的元素，则查看哪个区域的元素还有剩余，如果第二区域的元素还有剩余，且第一区域已经比较完毕，即 \_\_first1 已到结束标记 \_\_last1 ，则判定按字典序第一区域的元素要小于第而区域的元素。否则，认为第一区域的元素大于第二区域的元素。(如果两个区域的内容完全相同返回 false )
+
+	template <class _InputIter1, class _InputIter2>
+	bool lexicographical_compare(_InputIter1 __first1, _InputIter1 __last1,
+				     _InputIter2 __first2, _InputIter2 __last2) {
+	  __STL_REQUIRES(_InputIter1, _InputIterator);
+	  __STL_REQUIRES(_InputIter2, _InputIterator);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter1>::value_type,
+			 _LessThanComparable);
+	  __STL_REQUIRES(typename iterator_traits<_InputIter2>::value_type,
+			 _LessThanComparable);
+	  for ( ; __first1 != __last1 && __first2 != __last2
+		; ++__first1, ++__first2) {
+	    if (*__first1 < *__first2)
+	      return true;
+	    if (*__first2 < *__first1)
+	      return false;
+	  }
+	  return __first1 == __last1 && __first2 != __last2;
+	}
+
+<div class="cut"></div>
+
+lexicographical\_compare 用用户自定义的比较函数来比较两片区域的大小。\_Compare 可以是函数指针也可以是函数对象。
+
+	template <class _InputIter1, class _InputIter2, class _Compare>
+	bool lexicographical_compare(_InputIter1 __first1, _InputIter1 __last1,
+				     _InputIter2 __first2, _InputIter2 __last2,
+				     _Compare __comp) {
+	  __STL_REQUIRES(_InputIter1, _InputIterator);
+	  __STL_REQUIRES(_InputIter2, _InputIterator);
+	  for ( ; __first1 != __last1 && __first2 != __last2
+		; ++__first1, ++__first2) {
+	    if (__comp(*__first1, *__first2))
+	      return true;
+	    if (__comp(*__first2, *__first1))
+	      return false;
+	  }
+	  return __first1 == __last1 && __first2 != __last2;
+	}
+
+<div class="cut"></div>
+
+lexicographical\_compare 有一个偏特化定义。当函数形参为 const unsigned char\*, const unsigned char\*, const unsigned char\*, const unsigned char\* 时使用如下偏特化定义。因为是逐字节进行比较。直接调用内部的 memcmp 进行比较。
+
+函数首先计算出两片内存区域的大小，分别为 \_\_len1 和 \_\_len2 。然后用 memcmp 对 \_\_first1 和 \_\_first2 开始的内存区域的前 min (\_\_len1, \_\_len2) 字节进行比较。将比较结果存储在 \_\_result 中。
+
+memcmp 的返回值为 -1, 0, 1 中的一个。如果 \_\_first1 开始的内存区域的内容按字典序小于 \_\_first2 开始的内存区域，则返回 -1 。如果相等则返回 0。如果大于则返回 1。
+
+函数最后通过查看 \_\_result 是否为 0 来查看前 min(\_\_len1, \_\_len2) 字节是否相等。如果不等且 result 小于 0 (即字典序 \_\_first1 开始的内存区域的内容小于 \_\_first2 开始的内存区域) 则返回 true ，如果不等且 \_\_result > 0 则返回 false 。如果 result 等于 0。则看 \_\_len1 是否小于 \_\_len2 。如果小于则返回 true 。否则返回 false 。
+
+	inline bool 
+	lexicographical_compare(const unsigned char* __first1,
+				const unsigned char* __last1,
+				const unsigned char* __first2,
+				const unsigned char* __last2)
+	{
+	  const size_t __len1 = __last1 - __first1;
+	  const size_t __len2 = __last2 - __first2;
+	  const int __result = memcmp(__first1, __first2, min(__len1, __len2));
+	  return __result != 0 ? __result < 0 : __len1 < __len2;
+	}
+
+<div class="cut"></div>
+
+[STL 的 基本算法(algobase) 分析（一）](../10/algobase1.html)</br>
+[STL 的 基本算法(algobase) 分析（二）](../10/algobase2.html)</br>

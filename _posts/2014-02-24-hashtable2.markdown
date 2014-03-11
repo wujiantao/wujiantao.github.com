@@ -1,0 +1,208 @@
+---
+title: STL 的 hashtable 分析（二）
+layout: post
+key: 3b2f0c35-40d5-4961-a006-905401f6101c
+tags:
+  -hashtable 
+  -STL
+---
+
+函数 insert\_unique 将节点值为 \_\_obj 的新节点插入到 hash 表，但要求新插入的节点的关键值不能和已存在的节点相同，否则插入失败，如果新插入的节点的关键值不与 hash 表中的其他节点相同则返回有指向新插入的节点的迭代器和 true 构造而成的pair 类型的变量，否则返回由 end() 和 false 构造而成的 pair 类型的变量。
+
+<div class="cut"></div>
+
+函数中首先调用 resize 检测 \_M\_buckets 中是否有大于或者等于 \_M\_num\_elements + 1 个的元素。如果有，resize 函数不作任何改动，否则函数会重新分配空间，并复制 hash 表中的节点到新的空间。然后调用 insert\_unique\_noresize 函数将节点值为 \_\_obj 的新节点插入到 hash 表中(插入成功与否取决于新节点的关键值是否存在与 hash 表中的某个已有节点中)
+
+	  pair<iterator, bool> insert_unique(const value_type& __obj)
+	  {
+	    resize(_M_num_elements + 1);
+	    return insert_unique_noresize(__obj);
+	  }
+
+<div class="cut"></div>
+
+函数 insert\_equal 将节点值为 \_\_obj 的新节点插入到 hash 表中，函数允许新节点的关键值存在于 hash 表中的某个已有节点中。 函数也是先调用 resize 函数分配合适的空间，然后调用 insert\_equaL\_noresize 函数将节点值为 \_\_obj 的新节点插入到 hash 表中。
+
+	  iterator insert_equal(const value_type& __obj)
+	  {
+	    resize(_M_num_elements + 1);
+	    return insert_equal_noresize(__obj);
+	  }
+
+<div class="cut"></div>
+
+insert\_unique 函数用来将 \_\_f 到 \_\_l 之间的内容插入到当前 hash 表中，并且要求新节点插入之后，hash 表中各个节点的关键值各不相同。具体的操作通过 insert\_unique 的另外的定义来实现。
+
+	  template <class _InputIterator>
+	  void insert_unique(_InputIterator __f, _InputIterator __l)
+	  {
+	    insert_unique(__f, __l, __ITERATOR_CATEGORY(__f));
+	  }
+
+<div class="cut"></div>
+
+如果迭代器是 input\_iterator 类型，则逐个调用 insert\_unique 插入 \_\_f 到 \_\_l 之间的元素。
+
+	  template <class _InputIterator>
+	  void insert_unique(_InputIterator __f, _InputIterator __l,
+			     input_iterator_tag)
+	  {
+	    for ( ; __f != __l; ++__f)
+	      insert_unique(*__f);
+	  }
+
+<div class="cut"></div>
+
+如果迭代器类型是 forward\_iterator 类型，则先计算 \_\_f 和 \_\_l 之间的差值，然后调用 resize 函数以保证 \_M\_buckets 中有足够的空间容纳即将被插入的元素。然后逐个调用 insert\_unique\_noresize 函数将 \_\_f 和 \_\_l 之间的内容插入到 \_M\_buckets 中。
+
+	  template <class _ForwardIterator>
+	  void insert_unique(_ForwardIterator __f, _ForwardIterator __l,
+			     forward_iterator_tag)
+	  {
+	    size_type __n = 0;
+	    distance(__f, __l, __n);
+	    resize(_M_num_elements + __n);
+	    for ( ; __n > 0; --__n, ++__f)
+	      insert_unique_noresize(*__f);
+	  }
+
+<div class="cut"></div>
+
+insert\_equal 函数用来将 \_\_f 到 \_\_l 之间的内容插入到当前 hash 表中。并且允许 hash 表中不同的节点带有相同的关键值。
+
+	  template <class _InputIterator>
+	  void insert_equal(_InputIterator __f, _InputIterator __l)
+	  {
+	    insert_equal(__f, __l, __ITERATOR_CATEGORY(__f));
+	  }
+
+<div class="cut"></div>
+
+如果迭代器类型为 input\_iterator，则逐个调用 insert\_equal 函数的另一个定义将 \_\_f 到 \_\_l 中的内容插入到当前 hash 表中。 
+
+	  template <class _InputIterator>
+	  void insert_equal(_InputIterator __f, _InputIterator __l,
+			    input_iterator_tag)
+	  {
+	    for ( ; __f != __l; ++__f)
+	      insert_equal(*__f);
+	  }
+
+<div class="cut"></div>
+
+如果迭代器类型为 forward\_iterator ，则先计算出 \_\_f 到 \_\_l 的差值，然后调用 resize 以保证 \_M\_buckets 中有足够的元素能容纳即将插入的新节点。然后调用 insert\_equal\_noresize 函数逐个将 \_\_f 到 \_\_l 之间的内容插入到当前 hash 表中。
+
+	  template <class _ForwardIterator>
+	  void insert_equal(_ForwardIterator __f, _ForwardIterator __l,
+			    forward_iterator_tag)
+	  {
+	    size_type __n = 0;
+	    distance(__f, __l, __n);
+	    resize(_M_num_elements + __n);
+	    for ( ; __n > 0; --__n, ++__f)
+	      insert_equal_noresize(*__f);
+	  }
+
+<div class="cut"></div>
+
+find 函数用来查找 hash 表中关键值为 \_\_k 的节点，如果存在，则返回指向该节点的迭代器，否则返回一个指向无效位置的迭代器(和 end() 相等)。函数首先调用 \_M\_bkt\_num\_key 计算出关键值为 \_\_key 的节点应该处在以 \_M\_buckets 中的第 \_\_n 个元素为链表头的链表中。
+
+然后逐个检测以 \_M\_buckets 的第 \_\_n 个元素为链表头的链表中的元素，如果碰到关键值为 \_\_key 的节点，则返回指向该节点的迭代器，如果遍历了整个链表都不能找到关键值为 \_\_key 的元素，则返回一个指向无效位置的迭代器。
+
+	  iterator find(const key_type& __key) 
+	  {
+	    size_type __n = _M_bkt_num_key(__key);
+	    _Node* __first;
+	    for ( __first = _M_buckets[__n];
+		  __first && !_M_equals(_M_get_key(__first->_M_val), __key);
+		  __first = __first->_M_next)
+	      {}
+	    return iterator(__first, this);
+	  } 
+
+<div class="cut"></div>
+
+count 函数用来查找 hash 表中关键值为 \_\_key 的节点个数。函数首先计算出关键值为 \_\_key 的节点应该处在以 \_M\_buckets 的第 \_\_n 个元素为链表头的链表中，然后遍历该链表，计算出其中关键值为 \_\_key 的节点个数。并将其作为返回值返回。
+
+	  size_type count(const key_type& __key) const
+	  {
+	    const size_type __n = _M_bkt_num_key(__key);
+	    size_type __result = 0;
+
+	    for (const _Node* __cur = _M_buckets[__n]; __cur; __cur = __cur->_M_next)
+	      if (_M_equals(_M_get_key(__cur->_M_val), __key))
+		++__result;
+	    return __result;
+	  }
+
+<div class="cut"></div>
+
+函数 find\_or\_insert 用来将数据值为 \_\_obj 的节点插入到 hash 表中，函数首先调用 resize 函数以保证 \_M\_buckets 中有足够的元素来容纳新节点。然后调用 \_M\_bkt\_num 计算出节点值为 \_\_obj 的节点处在以 \_M\_buckets 中第 \_\_n 个元素为链表头的链表中。然后遍历该链表，查找节点值为 \_\_obj 的节点的关键值是否已存在于链表中的某个节点中，如果有，则直接返回。如果没有，则将新节点插入到表的表头位置，让 \_M\_buckets[\_\_n] 指向这个新节点。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	typename hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>::reference 
+	hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>::find_or_insert(const value_type& __obj)
+	{
+	  resize(_M_num_elements + 1);
+
+	  size_type __n = _M_bkt_num(__obj);
+	  _Node* __first = _M_buckets[__n];
+
+	  for (_Node* __cur = __first; __cur; __cur = __cur->_M_next)
+	    if (_M_equals(_M_get_key(__cur->_M_val), _M_get_key(__obj)))
+	      return __cur->_M_val;
+
+	  _Node* __tmp = _M_new_node(__obj);
+	  __tmp->_M_next = __first;
+	  _M_buckets[__n] = __tmp;
+	  ++_M_num_elements;
+	  return __tmp->_M_val;
+	}
+
+<div class="cut"></div>
+
+函数 equal\_range 用来查找关键值为指定值 \_\_key 的节点所在的区域，这个区域由两个迭代器限定。将由这两个迭代器组成的 pair 类型的变量作为函数的返回值。
+
+函数首先计算出关键值为 \_\_key 的节点处在以 \_M\_buckets 的第 \_\_n 个元素为链表头的链表中。从该链表的表头开始遍历，查找到第一个关键值为 \_\_key 的节点 \_\_first。然后从 \_\_first 的下一个节点开始继续向后遍历，直到碰到一个节点值不为 \_\_key 的节点 \_\_cur (因为关键值为 \_\_key 的节点是连续存储的，所以可以认为 \_\_first 和 \_\_cur 之间的节点就是所有关键值为 \_\_key 的节点)。然后将由 \_\_first 和 \_\_cur 组成的迭代器组合作为返回值返回。
+
+但如果直到链表的最后一个元素都没有找到关键值不为 \_\_key 的节点，则可以认为该链表中从 \_\_first 开始的所有元素的关键值都为 \_\_key 。则需将一个新的链表的链表头作为结束标记，这个链表头可以通过从 \_M\_buckets 的第 \_\_n + 1 个元素开始，查找到第一个不为空的元素。则该元素指向的节点就可以作为结束标记，它被认为是 hash 表中以 \_M\_buckets 的第 \_\_n 个元素作为链表头的链表中的最后一个节点的下一个节点。
+
+如果遍历了以 \_M\_buckets 的第 \_\_n 个元素为链表头的链表都没有找到关键值为 \_\_key 的元素，则返回两个由 end() 组合而成的返回值。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	pair<typename hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>::const_iterator, 
+	     typename hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>::const_iterator> 
+	hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>
+	  ::equal_range(const key_type& __key) const
+	{
+	  typedef pair<const_iterator, const_iterator> _Pii;
+	  const size_type __n = _M_bkt_num_key(__key);
+
+	  for (const _Node* __first = _M_buckets[__n] ;
+	       __first; 
+	       __first = __first->_M_next) {
+	    if (_M_equals(_M_get_key(__first->_M_val), __key)) {
+	      for (const _Node* __cur = __first->_M_next;
+		   __cur;
+		   __cur = __cur->_M_next)
+		if (!_M_equals(_M_get_key(__cur->_M_val), __key))
+		  return _Pii(const_iterator(__first, this),
+			      const_iterator(__cur, this));
+	      for (size_type __m = __n + 1; __m < _M_buckets.size(); ++__m)
+		if (_M_buckets[__m])
+		  return _Pii(const_iterator(__first, this),
+			      const_iterator(_M_buckets[__m], this));
+	      return _Pii(const_iterator(__first, this), end());
+	    }
+	  }
+	  return _Pii(end(), end());
+	}
+
+
+
+<div class="cut"></div>
+
+[STL 的 hashtable 分析（一）](../24/hashtable1.html)</br>
+[STL 的 hashtable 分析（二）](../24/hashtable2.html)</br>
+[STL 的 hashtable 分析（三）](../24/hashtable3.html)</br>
+[STL 的 hashtable 分析（四）](../24/hashtable4.html)</br>

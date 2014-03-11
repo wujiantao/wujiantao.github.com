@@ -1,0 +1,333 @@
+---
+title: STL 的 heap 分析
+layout: post
+key: 1221a484-4bf9-479f-9f97-9eaf959c4662
+tags:
+  -heap 
+  -STL
+---
+
+stl\_heap 中主要定义了五个函数，分别为 push\_heap, \_\_adjust\_heap, pop\_heap, make\_heap 和 sort\_heap 。通过这五个函数能够在一片给定的连续存储空间上构造一个最大堆。
+
+<div class="cut"></div>
+
+####push\_heap 函数####
+
+\_\_push\_heap 函数用于在指定的位置 \_\_holeIndex 上插入一个值为 \_\_value 的元素，然后对 heap 进行调整使得其满足最大堆的性质。 
+
+第一个形参 \_\_first 记录的是指向 heap 中第一个元素的迭代器，迭代器类型是支持随机访问的。第二个形参 \_\_topIndex 用来限制上限，即只需要 \_\_holeIndex 到 \_\_topIndex 之间的元素满足最大堆的性质即可。
+
+函数中首先计算出 \_\_holeIndex (\_\_value 元素一直被看成是放在 \_\_holeIndex 位置上的) 的父节点的位置 \_\_parent(对于给定位置 \_\_i 上的节点，其左子节点的位置为 (\_\_i << 1) + 1，其右子节点的位置为 (\_\_i << 1) + 2) 。
+
+然后比较 \_\_parent 位置上的元素是否比 \_\_value 要小 (即 \_\_holeIndex 位置上的元素) ，如果要小，则说明违反了最大堆的性质，则将父节点上的元素和子节点上的元素进行交换，使得其满足最大堆的性质(这里的交换，并不是严格意义上的交换，实际采取的操作是将父节点 \_\_parent 上的值赋值给子节点 \_\_holdIndex，然后将 holeIndex 更新为 parent，因为 \_\_value 元素一直看成是放在 \_\_holeIndex 位置上的，所以也就等同于交换了父节点和子节点的值)。
+
+如果不小，因为在插入之前是满足最大堆的性质的，插入之后唯一可能不满足最大堆性质的地方就在 \_\_parent 和 \_\_holeIndex 的位置上，现在该位置上的元素也是满足这一性质的，说明整个元素都是满足最大堆性质的。最后再将 \_\_value 插入到 \_\_holeIndex 的位置上。
+
+
+	template <class _RandomAccessIterator, class _Distance, class _Tp>
+	void 
+	__push_heap(_RandomAccessIterator __first,
+		    _Distance __holeIndex, _Distance __topIndex, _Tp __value)
+	{
+	  _Distance __parent = (__holeIndex - 1) / 2;
+	  while (__holeIndex > __topIndex && *(__first + __parent) < __value) {
+	    *(__first + __holeIndex) = *(__first + __parent);
+	    __holeIndex = __parent;
+	    __parent = (__holeIndex - 1) / 2;
+	  }    
+	  *(__first + __holeIndex) = __value;
+	}
+
+<div class="cut"></div>
+
+\_\_push\_heap\_aux 函数是 push\_heap 的一个辅助函数，该函数将 \_\_first 到 \_\_last 之间的最后一个元素(\_\_last - 1 所在位置的元素)插入到最大堆(由 \_\_first 到 \_\_last - 1 (不包括 \_\_last - 1)之间的元素构造的最大堆)中。并且要求插入后通过调整仍然满足最大堆的性质。通过调用 \_\_push\_heap 来实现相应的功能。函数的第三个和第四个形参用来传递类型 \_Distance 和 \_Tp 。
+
+	template <class _RandomAccessIterator, class _Distance, class _Tp>
+	inline void 
+	__push_heap_aux(_RandomAccessIterator __first,
+			_RandomAccessIterator __last, _Distance*, _Tp*)
+	{
+	  __push_heap(__first, _Distance((__last - __first) - 1), _Distance(0), 
+		      _Tp(*(__last - 1)));
+	}
+
+<div class="cut"></div>
+
+push\_heap 函数将 \_\_first 到 \_\_last 之间的最后一个元素插入到最大堆中。函数中有两个类型检测语句，要求迭代器类型是支持随即访问的可变的迭代器，同时要求迭代器指向的元素可以应用 < 进行比较。也就是说如果元素是非基本数据类型则需要重载 operator < 函数。
+
+	template <class _RandomAccessIterator>
+	inline void 
+	push_heap(_RandomAccessIterator __first, _RandomAccessIterator __last)
+	{
+	  __STL_REQUIRES(_RandomAccessIterator, _Mutable_RandomAccessIterator);
+	  __STL_REQUIRES(typename iterator_traits<_RandomAccessIterator>::value_type,
+			 _LessThanComparable);
+	  __push_heap_aux(__first, __last,
+			  __DISTANCE_TYPE(__first), __VALUE_TYPE(__first));
+	}
+
+<div class="cut"></div>
+
+\_\_push\_heap \_\_push\_heap\_aux 和 push\_heap 还支持用户自定义比较函数 这三个函数实现方法和上面的定义完全一致。
+
+	template <class _RandomAccessIterator, class _Distance, class _Tp, 
+		  class _Compare>
+	void
+	__push_heap(_RandomAccessIterator __first, _Distance __holeIndex,
+		    _Distance __topIndex, _Tp __value, _Compare __comp)
+	{
+	  _Distance __parent = (__holeIndex - 1) / 2;
+	  while (__holeIndex > __topIndex && __comp(*(__first + __parent), __value)) {
+	    *(__first + __holeIndex) = *(__first + __parent);
+	    __holeIndex = __parent;
+	    __parent = (__holeIndex - 1) / 2;
+	  }
+	  *(__first + __holeIndex) = __value;
+	}
+
+	template <class _RandomAccessIterator, class _Compare,
+		  class _Distance, class _Tp>
+	inline void 
+	__push_heap_aux(_RandomAccessIterator __first,
+			_RandomAccessIterator __last, _Compare __comp,
+			_Distance*, _Tp*) 
+	{
+	  __push_heap(__first, _Distance((__last - __first) - 1), _Distance(0), 
+		      _Tp(*(__last - 1)), __comp);
+	}
+
+	template <class _RandomAccessIterator, class _Compare>
+	inline void 
+	push_heap(_RandomAccessIterator __first, _RandomAccessIterator __last,
+		  _Compare __comp)
+	{
+	  __STL_REQUIRES(_RandomAccessIterator, _Mutable_RandomAccessIterator);
+	  __push_heap_aux(__first, __last, __comp,
+			  __DISTANCE_TYPE(__first), __VALUE_TYPE(__first));
+	}
+
+
+<div class="cut"></div>
+
+####\_\_adjust\_heap 函数####
+
+\_\_adjust\_heap 函数将将指定位置 \_\_holeIndex 上的元素替换为 \_\_value ，并且通过调整之后，使得 \_\_holeIndex 到 \_\_len 之间的元素仍然满足最大堆的性质。
+
+函数首先用 \_\_topIndex 记录 \_\_holeIndex 的值，同时用 \_\_secondChild 存储 \_\_holeIndex 的第二个子节点的位置。
+
+函数内部没有通过直接将 \_\_value 赋值给 \_\_holeIndex 上的节点，然后从 \_\_holeIndex 开始至上而下进行调整，使得 \_\_holeIndex 到 \_\_len 之间的元素满足最大堆的性质。
+
+while 循环中每次先将 holeIndex 位置上的元素移除， 然后将 \_\_holeIndex 的两个子节点中值较大的那个移动到 \_\_holeIndex 的位置上，将 \_\_holeIndex 更新为那个值较大的那个子节点，下降一层继续进行比较。直到循环退出。
+	
+退出循环后，如果 \_\_secondChild == \_\_len， \_\_len 表示的是元素个数，\_\_len - 1 是 heap 中最后一个元素的位置，\_\_secondChild 作为 holeIndex 的右子节点，\_\_secondChild == \_\_len，\_\_secondChild 已经超出了最后一个元素的位置，说明 \_\_holeIndex 没有第右子节点的，但它有一个左子节点在 \_\_secondChild - 1 位置上，将该元素移动到 \_\_holeIndex 位置上，将 \_\_holeIndex 更新为 \_\_secondChild - 1 。
+
+函数最后调用 push\_heap 函数将 \_\_value 插入到 \_\_holeIndex(该位置上的元素已被移到父节点，且它没有子节点) 位置上。这样就实现了首先将 \_\_value 插入到 \_\_topIndex 上，并通过调整使得 \_\_topIndex 到 \_\_len 之间的元素满足最大堆的性质。
+
+	template <class _RandomAccessIterator, class _Distance, class _Tp>
+	void 
+	__adjust_heap(_RandomAccessIterator __first, _Distance __holeIndex,
+		      _Distance __len, _Tp __value)
+	{
+	  _Distance __topIndex = __holeIndex;
+	  _Distance __secondChild = 2 * __holeIndex + 2;
+	  while (__secondChild < __len) {
+	    if (*(__first + __secondChild) < *(__first + (__secondChild - 1)))
+	      __secondChild--;
+	    *(__first + __holeIndex) = *(__first + __secondChild);
+	    __holeIndex = __secondChild;
+	    __secondChild = 2 * (__secondChild + 1);
+	  }
+	  if (__secondChild == __len) {
+	    *(__first + __holeIndex) = *(__first + (__secondChild - 1));
+	    __holeIndex = __secondChild - 1;
+	  }
+	  __push_heap(__first, __holeIndex, __topIndex, __value);
+	}
+
+<div class="cut"></div>
+####pop\_heap 函数####
+
+\_\_pop\_heap 将 \_\_first 指示位置上的元素替换为 \_\_value 元素，并通过调整使得其仍然满足最大堆的性质。\_\_result 用来获取被移除的元素。
+
+	template <class _RandomAccessIterator, class _Tp, class _Distance>
+	inline void 
+	__pop_heap(_RandomAccessIterator __first, _RandomAccessIterator __last,
+		   _RandomAccessIterator __result, _Tp __value, _Distance*)
+	{
+	  *__result = *__first;
+	  __adjust_heap(__first, _Distance(0), _Distance(__last - __first), __value);
+	}
+
+<div class="cut"></div>
+
+\_\_pop\_heap\_aux 函数将 \_\_first 到 \_\_last 之间的元素构造的最大堆上 \_\_first 位置的元素弹出，并将该弹出的元素放在 \_\_last - 1 的位置。
+
+函数调用 \_\_pop\_heap 用 \_\_last - 1 位置上的元素替换 \_\_first 位置上的元素。并调整 \_\_first 到 \_\_last - 1 (不包括 \_\_last - 1 所在位置的元素) 之间的元素，使得其仍然满足最大堆的性质。原先 \_\_first 上值被放置到 \_\_last - 1 的位置上。
+
+	template <class _RandomAccessIterator, class _Tp>
+	inline void 
+	__pop_heap_aux(_RandomAccessIterator __first, _RandomAccessIterator __last,
+		       _Tp*)
+	{
+	  __pop_heap(__first, __last - 1, __last - 1, 
+		     _Tp(*(__last - 1)), __DISTANCE_TYPE(__first));
+	}
+
+<div class="cut"></div>
+
+pop\_heap 函数将 \_\_first 到 \_\_last 之间的元素构造的最大堆上的最大元移除。并且使得调整之后的 \_\_first 到 \_\_last - 1 (不包括 \_\_last - 1 所在的位置) 之间的元素仍然满足最大堆的性质。移除之后的元素会被放到 \_\_last - 1 的位置上。
+
+	template <class _RandomAccessIterator>
+	inline void pop_heap(_RandomAccessIterator __first, 
+			     _RandomAccessIterator __last)
+	{
+	  __STL_REQUIRES(_RandomAccessIterator, _Mutable_RandomAccessIterator);
+	  __STL_REQUIRES(typename iterator_traits<_RandomAccessIterator>::value_type,
+			 _LessThanComparable);
+	  __pop_heap_aux(__first, __last, __VALUE_TYPE(__first));
+	}
+
+<div class="cut"></div>
+
+\_\_adjust\_heap, \_\_pop\_heap, \_\_pop\_heap\_aux 和 pop\_heap 也支持用户自定义比较函数。
+
+	template <class _RandomAccessIterator, class _Distance,
+		  class _Tp, class _Compare>
+	void
+	__adjust_heap(_RandomAccessIterator __first, _Distance __holeIndex,
+		      _Distance __len, _Tp __value, _Compare __comp)
+	{
+	  _Distance __topIndex = __holeIndex;
+	  _Distance __secondChild = 2 * __holeIndex + 2;
+	  while (__secondChild < __len) {
+	    if (__comp(*(__first + __secondChild), *(__first + (__secondChild - 1))))
+	      __secondChild--;
+	    *(__first + __holeIndex) = *(__first + __secondChild);
+	    __holeIndex = __secondChild;
+	    __secondChild = 2 * (__secondChild + 1);
+	  }
+	  if (__secondChild == __len) {
+	    *(__first + __holeIndex) = *(__first + (__secondChild - 1));
+	    __holeIndex = __secondChild - 1;
+	  }
+	  __push_heap(__first, __holeIndex, __topIndex, __value, __comp);
+	}
+
+	template <class _RandomAccessIterator, class _Tp, class _Compare, 
+		  class _Distance>
+	inline void 
+	__pop_heap(_RandomAccessIterator __first, _RandomAccessIterator __last,
+		   _RandomAccessIterator __result, _Tp __value, _Compare __comp,
+		   _Distance*)
+	{
+	  *__result = *__first;
+	  __adjust_heap(__first, _Distance(0), _Distance(__last - __first), 
+			__value, __comp);
+	}
+
+	template <class _RandomAccessIterator, class _Tp, class _Compare>
+	inline void 
+	__pop_heap_aux(_RandomAccessIterator __first,
+		       _RandomAccessIterator __last, _Tp*, _Compare __comp)
+	{
+	  __pop_heap(__first, __last - 1, __last - 1, _Tp(*(__last - 1)), __comp,
+		     __DISTANCE_TYPE(__first));
+	}
+
+	template <class _RandomAccessIterator, class _Compare>
+	inline void 
+	pop_heap(_RandomAccessIterator __first,
+		 _RandomAccessIterator __last, _Compare __comp)
+	{
+	  __STL_REQUIRES(_RandomAccessIterator, _Mutable_RandomAccessIterator);
+	  __pop_heap_aux(__first, __last, __VALUE_TYPE(__first), __comp);
+	}
+
+<div class="cut"></div>
+
+####make\_heap 函数####
+
+\_\_make\_heap 函数用于在已有的元素序列上构造一个最大堆，构造的方法是自底向上的，该方法的复杂度为 O(n) ，而如果采用自上而下的构造方法则复杂度为 O(nlogn) 。
+
+函数首先计算出总的元素个数 \_\_len，然后算出最后一个元素的父节点的位置 \_\_parent。\_\_parent + 1 到 \_\_len 之间的元素都是满足最大堆性质的(这些元素在堆中都没有子节点)。所以只需要对位置 0 到 位置 parent 之间的元素进行调整即可。
+
+函数模板的第三个和第四个形参没有实际意义，主要用来传递类型 \_Tp 和 \_Distance 类型。
+
+	template <class _RandomAccessIterator, class _Tp, class _Distance>
+	void 
+	__make_heap(_RandomAccessIterator __first,
+		    _RandomAccessIterator __last, _Tp*, _Distance*)
+	{
+	  if (__last - __first < 2) return;
+	  _Distance __len = __last - __first;
+	  _Distance __parent = (__len - 2)/2;
+	    
+	  while (true) {
+	    __adjust_heap(__first, __parent, __len, _Tp(*(__first + __parent)));
+	    if (__parent == 0) return;
+	    __parent--;
+	  }
+	}
+
+<div class="cut"></div>
+
+make\_heap 用于构造堆，通过调用 \_\_make\_heap 来实现这一功能。
+
+	template <class _RandomAccessIterator>
+	inline void 
+	make_heap(_RandomAccessIterator __first, _RandomAccessIterator __last)
+	{
+	  __STL_REQUIRES(_RandomAccessIterator, _Mutable_RandomAccessIterator);
+	  __STL_REQUIRES(typename iterator_traits<_RandomAccessIterator>::value_type,
+			 _LessThanComparable);
+	  __make_heap(__first, __last,
+		      __VALUE_TYPE(__first), __DISTANCE_TYPE(__first));
+	}
+
+<div class="cut"></div>
+
+\_\_make\_heap 和 make\_heap 也支持用户自定义比较函数。
+
+	template <class _RandomAccessIterator, class _Compare,
+		  class _Tp, class _Distance>
+	void
+	__make_heap(_RandomAccessIterator __first, _RandomAccessIterator __last,
+		    _Compare __comp, _Tp*, _Distance*)
+	{
+	  if (__last - __first < 2) return;
+	  _Distance __len = __last - __first;
+	  _Distance __parent = (__len - 2)/2;
+	    
+	  while (true) {
+	    __adjust_heap(__first, __parent, __len, _Tp(*(__first + __parent)),
+			  __comp);
+	    if (__parent == 0) return;
+	    __parent--;
+	  }
+	}
+
+	template <class _RandomAccessIterator, class _Compare>
+	inline void 
+	make_heap(_RandomAccessIterator __first, 
+		  _RandomAccessIterator __last, _Compare __comp)
+	{
+	  __STL_REQUIRES(_RandomAccessIterator, _Mutable_RandomAccessIterator);
+	  __make_heap(__first, __last, __comp,
+		      __VALUE_TYPE(__first), __DISTANCE_TYPE(__first));
+	}
+
+<div class="cut"></div>
+
+####sort\_heap 函数####
+
+sort\_heap 用来对堆中的元素进行排序，排序的顺序是升序。 pop\_heap 每次都是将堆中的最大元弹出，并放置在弹出前堆的最后一个元素所在的位置。循环的调用 pop\_heap 函数，直到 heap 中只有一个元素，所得到的元素序列即为一个按升序进行排列的序列。
+
+	template <class _RandomAccessIterator>
+	void sort_heap(_RandomAccessIterator __first, _RandomAccessIterator __last)
+	{
+	  __STL_REQUIRES(_RandomAccessIterator, _Mutable_RandomAccessIterator);
+	  __STL_REQUIRES(typename iterator_traits<_RandomAccessIterator>::value_type,
+			 _LessThanComparable);
+	  while (__last - __first > 1)
+	    pop_heap(__first, __last--);
+	}

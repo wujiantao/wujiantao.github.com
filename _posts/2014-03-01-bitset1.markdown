@@ -1,0 +1,255 @@
+---
+title: STL 的 bitset 分析（一）
+layout: post
+key: 2bd6e8c5-484d-4ff1-a526-e0495880fb7c
+tags:
+  -bitset 
+  -STL
+---
+
+bitset 对位运算进行了封装。因为一个字长的变量所能存储的比特位毕竟十分有限，在 bitset 中对多个字长的变量进行拼接，使得其能存储足够的比特位。然后在拼接而成的变量上定义了一系列的位运算操作。
+
+<div class="cut"></div>
+
+bitset 文件中首先定义了两个使用频率很高的宏定义，\_\_BITS\_PER\_WORD 用来计算一个字长的变量能存储多少个比特位。\_\_BITSET\_WORDS(\_\_n) 用来计算 \_\_n 比特的数据需要多少个字来存储。
+
+	#define __BITS_PER_WORD (CHAR_BIT*sizeof(unsigned long))
+	#define __BITSET_WORDS(__n) \
+	 ((__n) < 1 ? 1 : ((__n) + __BITS_PER_WORD - 1)/__BITS_PER_WORD)
+
+<div class="cut"></div>
+
+####类模板 \_Bit\_count####
+
+类模板 \_Bit\_count 用来计算一个字节的无符号数中有多少个比特位，一个字节的无符号数在 0 到 255 之间。将无符号数的值作为索引在索引数组 \_S\_bit\_count 中进行查找。\_S\_bit\_count 在文件的最末尾进行了初始化。模板形参 \_\_dummy 没有实际的意义，但用不同的实参来实例化 \_Bit\_count 时可以起到一个区分的作用。
+
+	template<bool __dummy> 
+	struct _Bit_count {
+	  static unsigned char _S_bit_count[256];
+	};
+
+<div class="cut"></div>
+
+####类模板 \_First\_one####
+
+类模板 \_First\_one 用来计算一个字节的无符号数中，从低位开始，其第一个不为 0 的比特位在第几位。最低位为第 0 位。
+
+	template<bool __dummy> 
+	struct _First_one {
+	  static unsigned char _S_first_one[256];
+	};
+
+<div class="cut"></div>
+
+####类模板 \_Base\_bitset####
+
+类模板 \_Base\_bitset 作为 bitset 的基类。模板形参 \_Nw 表示所需的比特位一共需要 \_Nw 个字的变量来存储。
+
+	template<size_t _Nw>
+	struct _Base_bitset {
+
+<div class="cut"></div>
+	  
+其中定义了一个成员类型 \_WordT 。表示大小为一个字的类型。其为 unsigned long 的类型别名。
+
+	  typedef unsigned long _WordT;
+
+<div class="cut"></div>
+	  
+成员变量 \_M\_w 用来存储具体的比特位，低位存储在 \_M\_w 低位的元素中，即最低位存储在 \_M\_w[0] 中(最低位存储在 \_M\_w[0] 的最低位)，最高位存储在 \_M\_w[\_Nw - 1] 中。
+
+	  _WordT _M_w[_Nw];                // 0 is the least significant word.
+
+<div class="cut"></div>
+	  
+第一个构造函数中调用 \_M\_do\_reset() 来初始化 \_M\_w 中的内容，其中 \_M\_do\_reset() 会将 \_M\_w 的所有元素初始化为 0。也即所有的比特位都为 0。
+
+第二个构造函数先调用 \_M\_do\_reset 将所有比特位初始化为 0。然后调用 \_\_val 初始化 \_M\_w[0] 。因为 \_\_val 所占空间为一个字长，则相当于用 \_\_val 初始化了所有的比特位。
+
+	  _Base_bitset( void ) { _M_do_reset(); }
+	  _Base_bitset(unsigned long __val) {
+	    _M_do_reset();
+	    _M_w[0] = __val;
+	  }
+
+<div class="cut"></div>
+	  
+函数 \_S\_whichword 表示第 \_\_pos 为存储在 \_M\_w 中的那个字(元素)中。函数 \_S\_whichbyte 表示第 \_\_pos 个字节存储在某个字的第几个字节中。函数 \_S\_whichbit 表示第 \_\_pos 个比特位存储在某个字的第几个比特位上。函数 \_S\_maskbit 将一个字的第 \_S\_whichbit(\_\_pos) 所在比特位置为 1，其他位置位 0 。
+
+	  static size_t _S_whichword( size_t __pos )
+	    { return __pos / __BITS_PER_WORD; }
+	  static size_t _S_whichbyte( size_t __pos )
+	    { return (__pos % __BITS_PER_WORD) / CHAR_BIT; }
+	  static size_t _S_whichbit( size_t __pos )
+	    { return __pos % __BITS_PER_WORD; }
+	  static _WordT _S_maskbit( size_t __pos )
+	    { return (static_cast<_WordT>(1)) << _S_whichbit(__pos); }
+
+<div class="cut"></div>
+	  
+函数 \_M\_getword 得到第 \_\_pos 位所在的字，\_M\_hiword 得到最高位所在的字。
+
+	  _WordT& _M_getword(size_t __pos)       { return _M_w[_S_whichword(__pos)]; }
+	  _WordT& _M_hiword()       { return _M_w[_Nw - 1]; }
+
+<div class="cut"></div>
+	  
+函数 \_M\_do\_and 将 \_M\_w 表示的值与给定的 \_\_x 中的 \_M\_w 表示的值，进行按位与，并用按位与的结果更新当前的 \_M\_w 。
+
+	  void _M_do_and(const _Base_bitset<_Nw>& __x) {
+	    for ( size_t __i = 0; __i < _Nw; __i++ ) {
+	      _M_w[__i] &= __x._M_w[__i];
+	    }
+	  }
+
+<div class="cut"></div>
+	  
+函数 \_M\_do\_or 将 \_M\_w 表示的值与给定 \_\_x 中的 \_M\_w 表示的值进行按位或，并用按位或的结果更新当前的 \_M\_w。
+
+	  void _M_do_or(const _Base_bitset<_Nw>& __x) {
+	    for ( size_t __i = 0; __i < _Nw; __i++ ) {
+	      _M_w[__i] |= __x._M_w[__i];
+	    }
+	  }
+
+<div class="cut"></div>
+	  
+函数 \_M\_do\_xor 将 \_M\_w 表示的值与给定 \_\_x 中的 \_M\_w 表示的值进行按位异或，并用按位异或的结果更新当前 \_M\_w 。
+
+	  void _M_do_xor(const _Base_bitset<_Nw>& __x) {
+	    for ( size_t __i = 0; __i < _Nw; __i++ ) {
+	      _M_w[__i] ^= __x._M_w[__i];
+	    }
+	  }
+
+<div class="cut"></div>
+	  
+函数 \_M\_do\_flip 将 \_M\_w 表示的值进行按位取反。
+
+	  void _M_do_flip() {
+	    for ( size_t __i = 0; __i < _Nw; __i++ ) {
+	      _M_w[__i] = ~_M_w[__i];
+	    }
+	  }
+
+<div class="cut"></div>
+	  
+函数 \_M\_do\_set 将 \_M\_w 的所有位置为 1 。
+
+	  void _M_do_set() {
+	    for ( size_t __i = 0; __i < _Nw; __i++ ) {
+	      _M_w[__i] = ~static_cast<_WordT>(0);
+	    }
+	  }
+
+<div class="cut"></div>
+	  
+函数 \_M\_do\_reset 将 \_M\_w 表示的所有位置为 0 。
+
+	  void _M_do_reset() { memset(_M_w, 0, _Nw * sizeof(_WordT)); }
+
+<div class="cut"></div>
+	  
+函数 \_M\_is\_equal 判断当前 \_M\_w 表示的值与给定 \_\_x 的 \_M\_w 表示的值是否相等。
+
+	  bool _M_is_equal(const _Base_bitset<_Nw>& __x) const {
+	    for (size_t __i = 0; __i < _Nw; ++__i) {
+	      if (_M_w[__i] != __x._M_w[__i])
+		return false;
+	    }
+	    return true;
+	  }
+
+<div class="cut"></div>
+	  
+函数 \_M\_is\_any 用来判断当前 \_M\_w 表示的值中是否存在比特位为 1 的位。通过判断\_M\_w 中是否存在不为 0 的字来进行判断。
+
+	  bool _M_is_any() const {
+	    for ( size_t __i = 0; __i < _Nw; __i++ ) {
+	      if ( _M_w[__i] != static_cast<_WordT>(0) )
+		return true;
+	    }
+	    return false;
+	  }
+
+<div class="cut"></div>
+	  
+函数 \_M\_do\_count 用来判断当前 \_M\_w 表示的值中有多少个为 1 的比特位。函数取得 \_M\_w 的首地址和截止地址，然后逐字节的进行计算(通过 \_Bit\_count 中的 \_S\_bit\_count 数组进行索引) 当前字节中为 1 的比特位。
+
+	  size_t _M_do_count() const {
+	    size_t __result = 0;
+	    const unsigned char* __byte_ptr = (const unsigned char*)_M_w;
+	    const unsigned char* __end_ptr = (const unsigned char*)(_M_w+_Nw);
+
+	    while ( __byte_ptr < __end_ptr ) {
+	      __result += _Bit_count<true>::_S_bit_count[*__byte_ptr];
+	      __byte_ptr++;
+	    }
+	    return __result;
+	  }
+
+<div class="cut"></div>
+	  
+函数将 \_M\_w 中的所有位整体左移 \_\_shift 个位置。令 \_\_wshift == \_\_shift / \_BIT\_PER\_WORD, \_\_offset = \_\_shift % \_\_BITS\_PER\_WORD . 则将 \_M\_w 中的所有位左移 \_\_shift 位等同于先将 \_M\_w 中所有位左移 \_\_wshift 个字，再左移 \_\_offset 个位。
+
+对于 \_M\_w[\_\_n] (\_\_n > \_\_wshift)所在的字，其高 \_\_BIT\_PER\_WORD - \_\_offset 位应该有 \_M\_w[n - wshift] 的低  \_\_BIT\_PER\_WORD - \_\_offset 位组成，而其低 \_\_offset 位则由 \_M\_w[n - wshift - 1] 的高 \_\_offset 位组成。而 \_M\_w[wshift] 的高 \_\_BIT\_PER\_WORD - \_\_offset 位由 \_M\_w[0] 的低 \_\_BIT\_PER\_WORD - offset 位组成，而其低 \_\_offset 位被置为 0。M\_w[wshift] 以下的字都被置为 0。
+
+	template<size_t _Nw>
+	void _Base_bitset<_Nw>::_M_do_left_shift(size_t __shift) 
+	{
+	  if (__shift != 0) {
+	    const size_t __wshift = __shift / __BITS_PER_WORD;
+	    const size_t __offset = __shift % __BITS_PER_WORD;
+
+	    if (__offset == 0)
+	      for (size_t __n = _Nw - 1; __n >= __wshift; --__n)
+		_M_w[__n] = _M_w[__n - __wshift];
+
+	    else {
+	      const size_t __sub_offset = __BITS_PER_WORD - __offset;
+	      for (size_t __n = _Nw - 1; __n > __wshift; --__n)
+		_M_w[__n] = (_M_w[__n - __wshift] << __offset) | 
+			    (_M_w[__n - __wshift - 1] >> __sub_offset);
+	      _M_w[__wshift] = _M_w[0] << __offset;
+	    }
+
+	    fill(_M_w + 0, _M_w + __wshift, static_cast<_WordT>(0));
+	  }
+	}
+
+<div class="cut"></div>
+	  
+函数 \_M\_do\_right 将 \_M\_w 中的所有位整体右移 \_\_shift 位。令 \_\_wshfit = \_\_shift / \_\_BIT\_PER\_WORD, \_\_offset = \_\_shift % \_\_BIT\_PER\_WORD . 则将 \_M\_w 整体右移 \_\_shift 位等同于将 \_M\_w 先右移 \_\_wshift 个字再右移 \_\_offset 个位。
+
+则 \_M\_w[\_\_n](\_\_n < \_Nw - wshift - 1) 的低 \_\_BIT\_PER\_WORD - \_\_offset 位由 \_M\_w[\_\_n + wshift]的高 \_\_BIT\_PER\_WORD - \_\_offset 位组成，\_M\_w[\_\_n] 的高 offset 位由 \_M\_w[\_\_n + wshift + 1] 的低 \_\_offset 位组成。而 M\_w[\_\_Nw - \_\_wshift - 1] 的低 \_\_BIT\_PER\_WORD - \_\_offset 位由 \_M\_w[\_Nw - 1] 的高 \_\_BIT\_PER\_WORD - \_\_offset 位组成，高 \_\_offset 位补 0。\_M\_w[\_Nw - \_\_wshift - 1] 以上的字都置为 0。
+
+	template<size_t _Nw>
+	void _Base_bitset<_Nw>::_M_do_right_shift(size_t __shift) 
+	{
+	  if (__shift != 0) {
+	    const size_t __wshift = __shift / __BITS_PER_WORD;
+	    const size_t __offset = __shift % __BITS_PER_WORD;
+	    const size_t __limit = _Nw - __wshift - 1;
+
+	    if (__offset == 0)
+	      for (size_t __n = 0; __n <= __limit; ++__n)
+		_M_w[__n] = _M_w[__n + __wshift];
+
+	    else {
+	      const size_t __sub_offset = __BITS_PER_WORD - __offset;
+	      for (size_t __n = 0; __n < __limit; ++__n)
+		_M_w[__n] = (_M_w[__n + __wshift] >> __offset) |
+			    (_M_w[__n + __wshift + 1] << __sub_offset);
+	      _M_w[__limit] = _M_w[_Nw-1] >> __offset;
+	    }
+
+	    fill(_M_w + __limit + 1, _M_w + _Nw, static_cast<_WordT>(0));
+	  }
+	}
+
+<div class="cut"></div>
+
+[STL 的 bitset 分析（一）](../01/bitset1.html)</br>
+[STL 的 bitset 分析（二）](../01/bitset2.html)</br>
+[STL 的 bitset 分析（三）](../01/bitset3.html)</br>
+[STL 的 bitset 分析（四）](../01/bitset4.html)</br>

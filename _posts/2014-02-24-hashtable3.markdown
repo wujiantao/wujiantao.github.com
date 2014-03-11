@@ -1,0 +1,175 @@
+---
+title: STL 的 hashtable 分析（三）
+layout: post
+key: 4c4551f1-86c2-4693-906c-e6838ccb0c90
+tags:
+  -hashtable 
+  -STL
+---
+
+\_M\_next\_size 函数中调用 \_\_stl\_next\_prime 获取到数组 \_\_stl\_prime\_list 中大于等于 \_\_n 的最小元素，如果不存在这样的元素，则返回 \_\_stl\_prime\_list 中的最大元素。
+
+	  size_type _M_next_size(size_type __n) const
+	    { return __stl_next_prime(__n); }
+
+<div class="cut"></div>
+
+\_M\_initialize\_buckets 用来初始化成员变量 \_M\_buckets 。因为 \_M\_buckets 的大小应该设置为素数，因此先调用 \_M\_next\_size 获取到 \_\_stl\_prime\_list 中大于等于 \_\_n 的最小素数 \_\_n\_buckets 。然后调用 \_M\_buckets 的 reserve 函数为 \_M\_buckets 分配 \_\_n\_buckets 个元素所需的空间(reserve 函数只是为 vector 申请空间，对 vector 中的元素不作更改)。然后为 \_M\_buckets 中插入 \_\_n\_buckets 个空指针。
+
+	  void _M_initialize_buckets(size_type __n)
+	  {
+	    const size_type __n_buckets = _M_next_size(__n);
+	    _M_buckets.reserve(__n_buckets);
+	    _M_buckets.insert(_M_buckets.end(), __n_buckets, (_Node*) 0);
+	    _M_num_elements = 0;
+	  }
+
+<div class="cut"></div>
+
+\_M\_bkt\_num\_key 函数用来获取关键值为 \_\_key 的节点应该处在以 \_M\_buckets 的哪个元素为链表头的链表中。将 \_\_key 和 \_M\_buckets.size() 作为实参调用 \_M\_bkt\_num\_key 的另一个定义来实现。
+
+	  size_type _M_bkt_num_key(const key_type& __key) const
+	  {
+	    return _M_bkt_num_key(__key, _M_buckets.size());
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_bkt\_num\_key 也是用来获取关键值为 \_\_key 的节点应处在以 \_M\_buckets 的哪个元素为链表头的链表中，函数首先用成员变量 \_M\_hash 获取到关键值为 \_\_key 的 hash 值，然后模除 \_\_n 得到该节点所处的链表。
+
+	  size_type _M_bkt_num_key(const key_type& __key, size_t __n) const
+	  {
+	    return _M_hash(__key) % __n;
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_bkt\_num 用来获取节点值为 \_\_obj 的节点处在以 \_M\_buckets 的哪个元素为链表头的链表中，函数通过成员变量 \_M\_get\_key 获取到节点值为 \_\_obj 的节点的关键值，然后调用 \_M\_bkt\_num\_key 来得到节点值为 \_\_obj 的节点所处的链表的链表头。
+
+	  size_type _M_bkt_num(const value_type& __obj) const
+	  {
+	    return _M_bkt_num_key(_M_get_key(__obj));
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_bkt\_num 也是用来获取节点值为 \_\_obj 的节点处在以 \_M\_buckets 的哪个元素为链表头的链表中，通过将 \_M\_get\_key(\_\_obj) 和 \_\_n 作为实参调用函数 \_M\_bkt\_num\_key 得到节点所处的链表。
+
+	  size_type _M_bkt_num(const value_type& __obj, size_t __n) const
+	  {
+	    return _M_bkt_num_key(_M_get_key(__obj), __n);
+	  }
+
+<div class="cut"></div>
+
+\_M\_new\_node 函数用来为给定的节点值 \_\_obj 构造一个新节点，函数首先调用 \_M\_get\_node 为新节点分配空间，然后在新分配空间的合适位置构造节点值为 \_\_obj 的节点。并返回指向该新节点的指针。
+
+	  _Node* _M_new_node(const value_type& __obj)
+	  {
+	    _Node* __n = _M_get_node();
+	    __n->_M_next = 0;
+	    __STL_TRY {
+	      construct(&__n->_M_val, __obj);
+	      return __n;
+	    }
+	    __STL_UNWIND(_M_put_node(__n));
+	  }
+
+<div class="cut"></div>
+
+\_M\_delete\_node 函数用来销毁 hash 表中的一个节点，并释放该节点所占用的空间。
+
+	  void _M_delete_node(_Node* __n)
+	  {
+	    destroy(&__n->_M_val);
+	    _M_put_node(__n);
+	  }
+
+<div class="cut"></div>
+
+insert\_unique\_noresize 用来将节点值为 \_\_obj 的新节点插入到 hash 表中，在调用函数 insert\_unique\_noresize 之前会保证 \_M\_buckets 中至少可以容纳 size() + 1 个元素。
+
+调用 \_M\_bkt\_num 函数获取节点值为 \_\_obj 的节点应处在以 \_M\_buckets 中的哪个元素为链表头的链表中，从该链表头开始遍历整个链表，如果遇到链表中的某个节点和节点值为 \_\_obj 的新节点的关键值相同，则插入失败，返回由指向该节点的迭代器和 false 组合而成的返回值。
+
+如果遍历完整个链表都没有和新节点关键值相同的节点，则将新节点插入到链表头部。并返回由指向新节点的迭代器和 true 组合而成的返回值。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	pair<typename hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>::iterator, bool> 
+	hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>
+	  ::insert_unique_noresize(const value_type& __obj)
+	{
+	  const size_type __n = _M_bkt_num(__obj);
+	  _Node* __first = _M_buckets[__n];
+
+	  for (_Node* __cur = __first; __cur; __cur = __cur->_M_next) 
+	    if (_M_equals(_M_get_key(__cur->_M_val), _M_get_key(__obj)))
+	      return pair<iterator, bool>(iterator(__cur, this), false);
+
+	  _Node* __tmp = _M_new_node(__obj);
+	  __tmp->_M_next = __first;
+	  _M_buckets[__n] = __tmp;
+	  ++_M_num_elements;
+	  return pair<iterator, bool>(iterator(__tmp, this), true);
+	}
+
+<div class="cut"></div>
+
+函数 insert\_equal\_noresize 用来将节点值为 \_\_obj 的新节点插入到 hash 表中。函数被调用前会保证 \_M\_buckets 中至少可以容纳 size() + 1 个元素。
+
+函数调用 \_M\_bkt\_num 获取节点值为 \_\_obj 的节点处在以 \_M\_buckets 的哪个元素为链表头的链表中。从该链表头开始遍历，如果遇到一个关键值和新节点关键值相同的节点，则将新节点插入到该关键值与新节点相同的节点后面，并返回指向新节点的迭代器。如果遍历完整个链表都没有找到与新节点关键值相同的节点，则将新节点插入到链表头部。并也返回指向新节点的迭代器。
+
+	template <class _Val, class _Key, class _HF, class _Ex, class _Eq, class _All>
+	typename hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>::iterator 
+	hashtable<_Val,_Key,_HF,_Ex,_Eq,_All>
+	  ::insert_equal_noresize(const value_type& __obj)
+	{
+	  const size_type __n = _M_bkt_num(__obj);
+	  _Node* __first = _M_buckets[__n];
+
+	  for (_Node* __cur = __first; __cur; __cur = __cur->_M_next) 
+	    if (_M_equals(_M_get_key(__cur->_M_val), _M_get_key(__obj))) {
+	      _Node* __tmp = _M_new_node(__obj);
+	      __tmp->_M_next = __cur->_M_next;
+	      __cur->_M_next = __tmp;
+	      ++_M_num_elements;
+	      return iterator(__tmp, this);
+	    }
+
+	  _Node* __tmp = _M_new_node(__obj);
+	  __tmp->_M_next = __first;
+	  _M_buckets[__n] = __tmp;
+	  ++_M_num_elements;
+	  return iterator(__tmp, this);
+	}
+
+<div class="cut"></div>
+
+函数 operator++ 是类模板 \_Hashtable\_iterator 的后置自增运算符重载函数，\_Hashtable\_iterator 的定义在 hashtable 的前面，因为介绍 operator++ 需要了解 hashtable 的成员 \_M\_buckets 的结构和功能。因此放在这个地方介绍可以使 operator++ 的介绍更为清晰一点。
+
+函数首先获得指向当前节点的指针，然后让 \_M\_cur 指向当前节点的 \_M\_next 指针所指的位置，如果 \_M\_next 不为空，则 \_M\_cur 会指向下一个节点，但如果当前节点的 \_M\_next 为空，则下一个节点就是当前链表之后第一个不为空的链表的链表头。
+
+首先获取当前节点所在的以 \_M\_buckets 的第 \_\_bucket 个元素为链表头的链表，然后从 \_M\_buckets 个的第 \_\_buckets 个元素的下一个元素开始，找到第一个不为空的元素，则以该元素即为当前节点的下一个节点。更新 \_M\_cur 的位置。
+
+	template <class _Val, class _Key, class _HF, class _ExK, class _EqK, 
+		  class _All>
+	_Hashtable_iterator<_Val,_Key,_HF,_ExK,_EqK,_All>&
+	_Hashtable_iterator<_Val,_Key,_HF,_ExK,_EqK,_All>::operator++()
+	{
+	  const _Node* __old = _M_cur;
+	  _M_cur = _M_cur->_M_next;
+	  if (!_M_cur) {
+	    size_type __bucket = _M_ht->_M_bkt_num(__old->_M_val);
+	    while (!_M_cur && ++__bucket < _M_ht->_M_buckets.size())
+	      _M_cur = _M_ht->_M_buckets[__bucket];
+	  }
+	  return *this;
+	}
+
+
+
+<div class="cut"></div>
+
+[STL 的 hashtable 分析（一）](../24/hashtable1.html)</br>
+[STL 的 hashtable 分析（二）](../24/hashtable2.html)</br>
+[STL 的 hashtable 分析（三）](../24/hashtable3.html)</br>
+[STL 的 hashtable 分析（四）](../24/hashtable4.html)</br>

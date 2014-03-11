@@ -1,0 +1,12 @@
+---
+title: STL 的 multimap 分析
+layout: post
+key: 75643cd4-a9ce-47ac-a665-ae736c3712b8
+tags:
+  -multimap
+  -STL
+---
+
+multiset 与 map 的定义十分类似，二者的区别有三处，一个是节点插入时，因为 map 中不允许不同节点的关键字相同，调用的是红黑树的成员函数 insert\_unique 。而 multimap 允许不同的节点有相同的关键字，其调用的是红黑树 insert\_equal 函数。第二个是二者的 count 函数稍有不同，count 函数用来返回 map 或 multimap 中关键字为给定值的节点个数，因此 map 中节点的关键字各不相同，因此关键字为给定值的节点个数至多为 1。但 multimap 中允许出现关键字相同的节点，因此关键字为给定值的节点个数可能为 0 到 size() 中的任何值。三个是 map 中有 operator[] 的定义，函数先查找关键字为给定值的节点是否存在，如果存在则返回该节点的数据值。否则用给定的关键值和缺省的数据值构造新节点，插入到 map 中，并返回新插入节点的数据值。但在 multimap 中根据给定的关键值查找对应的节点，可能存在多个节点，使得获取到的数据值不再唯一，因此 multimap 中不再有 operator[] 的定义。
+
+以上是 multimap 和 map 的三点不同之处，其他的定义不再赘述，可参看 [map](../24/map.html) 的定义。

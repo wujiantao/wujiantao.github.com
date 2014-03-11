@@ -1,0 +1,343 @@
+---
+title: STL 的 rope 分析（二）
+layout: post
+key: 78e60156-162e-4f97-9331-645a00c985f0
+tags:
+  -rope 
+  -STL
+---
+
+####类模板 \_Rope\_RopeLeaf####
+
+类模板 \_Rope\_RopeLeaf 用来表示 rope 的叶节点。如果认为没有子节点的节点是叶节点，rope 中有三种类型的叶节点，分别为 \_Rope\_RopeLeaf, \_Rope\_RopeFunction 和 \_Rope\_RopeSubstring 三种类型的叶节点，后两种类型的叶节点本身不存储元素，但它们可以通过特定的方式生成元素。而 \_Rope\_RopeLeaf 中本身有一个 \_M\_data 的域来存储节点中的元素。
+
+<div class="cut"></div>
+
+函数 \_S\_rounded\_up\_size 用来计算存储 \_\_n 个元素需要分配的内存空间，因为对于基本字符类型的元素需要分配一个额外的位置来设置结束标记。
+
+	template<class _CharT, class _Alloc>
+	struct _Rope_RopeLeaf : public _Rope_RopeRep<_CharT,_Alloc> {
+	    static size_t _S_rounded_up_size(size_t __n) {
+		size_t __size_with_eos;
+		     
+		if (_S_is_basic_char_type((_CharT*)0)) {
+		    __size_with_eos = __n + 1;
+		} else {
+		    __size_with_eos = __n;
+		}
+		   return __size_with_eos;
+	    }
+
+<div class="cut"></div>
+
+成员变量 \_M\_data 用来存储叶节点中所包含的元素序列。
+
+	    __GC_CONST _CharT* _M_data; /* Not necessarily 0 terminated. */
+
+<div class="cut"></div>
+
+构造函数中先对父类进行初始化，然后对成员变量 \_M\_data 进行初始化，因为当前叶节点是 \_S\_leaf 类型，\_M\_c\_string 展开后的内容就是 \_M\_data 。所以直接 \_M\_c\_string 指向 \_M\_data 。
+
+	    _Rope_RopeLeaf(__GC_CONST _CharT* __d, size_t __size, allocator_type __a)
+		: _Rope_RopeRep<_CharT,_Alloc>(_S_leaf, 0, true, __size, __a),
+		  _M_data(__d)
+		{
+		__stl_assert(__size > 0);
+		if (_S_is_basic_char_type((_CharT *)0)) {
+		    // already eos terminated.
+		    _M_c_string = __d;
+		}
+	    }
+
+<div class="cut"></div>
+
+####类模板 \_Rope\_RopeConcatenation####
+
+类模板 \_Rope\_RopeConcatenation 用来表示 rope 中非叶节点。每个 \_Rope\_RopeConcatenation 都有两个子节点，\_Rope\_RopeConcatenation 节点中不包含具体的元素，所有的元素只集中在叶节点中。\_Rope\_RopeConcatenation 继承自 \_Rope\_RopeRep 。
+
+		template<class _CharT, class _Alloc>
+		struct _Rope_RopeConcatenation : public _Rope_RopeRep<_CharT,_Alloc> {
+
+<div class="cut"></div>
+
+\_Rope\_RoepConcatenation 中定义了两个成员变量 \_M\_left, \_M\_right 分别用来表示当前节点的左右子节点。
+
+	    _Rope_RopeRep<_CharT,_Alloc>* _M_left;
+	    _Rope_RopeRep<_CharT,_Alloc>* _M_right;
+
+<div class="cut"></div>
+
+构造函数中首先对基类进行初始化，初始化后，当前节点的类型为 \_S\_concat, 深度为左子树和右子树中的最大深度加 1 。对于以当前节点为根的子树是否平衡，先设置为 false(实际上以当前节点为根的树可能是平衡的)。以当前节点为根的子树中包含的元素个数为左子树中的元素个数加上右子树中的元素个数。然后用给定值对 \_M\_left 和 \_M\_right 进行初始化。
+
+	    _Rope_RopeConcatenation(_Rope_RopeRep<_CharT,_Alloc>* __l,
+				     _Rope_RopeRep<_CharT,_Alloc>* __r,
+				     allocator_type __a)
+
+	      : _Rope_RopeRep<_CharT,_Alloc>(_S_concat,
+					     max(__l->_M_depth, __r->_M_depth) + 1,
+					     false,
+					     __l->_M_size + __r->_M_size, __a),
+		_M_left(__l), _M_right(__r)
+	      {}
+
+<div class="cut"></div>
+
+####类模板 \_Rope\_RopeFunction####
+
+\_Rope\_RopeFunction 类型的节点也可以看成 rope 中的叶节点，因为它也没有子节点。但它和 \_Rope\_RopeLeaf 不一样，它没有存储元素的数据域，它有一个成员 _M_fn，是函数对象的指针，可以用来生成当前节点存储的元素。当需要访问它的节点中所存储的元素时，直接调用该节点的 \_M\_fn，将元素生成到指定的位置。
+
+	template<class _CharT, class _Alloc>
+	struct _Rope_RopeFunction : public _Rope_RopeRep<_CharT,_Alloc> {
+
+<div class="cut"></div>
+
+\_Rope\_RopeFunction 中定义了一个成员变量，它是 char\_producer<\_CharT> 类型的指针。\_M\_fn 的 operator() 函数可以生成当前节点中的元素。
+
+	char_producer<_CharT>* _M_fn;
+
+<div class="cut"></div>
+
+函数 \_S\_fn\_finalization 用来删除成员 \_M\_fn。
+
+	static void _S_fn_finalization_proc(void * __tree, void *) {
+	delete ((_Rope_RopeFunction *)__tree) -> _M_fn;
+	}
+
+<div class="cut"></div>
+
+构造函数的初始化列表中对基类进行初始化。初始化之后当前节点的类型为 \_S\_function, 深度为 0, 是平衡的，\_M\_size 为 \_\_size，\_M\_fn 为 \_\_f。当节点退出生存周期后调用前面定义的 \_S\_fn\_finalization 释放 \_M\_fn 。
+
+	    _Rope_RopeFunction(char_producer<_CharT>* __f, size_t __size,
+				bool __d, allocator_type __a)
+	      : _Rope_RopeRep<_CharT,_Alloc>(_S_function, 0, true, __size, __a)
+	      , _M_fn(__f)
+	    {
+		__stl_assert(__size > 0);
+	#       ifdef __GC
+		    if (__d) {
+			GC_REGISTER_FINALIZER(
+			  this, _Rope_RopeFunction::_S_fn_finalization_proc, 0, 0, 0);
+		    }
+	#       endif
+	    }
+
+<div class="cut"></div>
+
+####类模板 \_Rope\_RopeSubstring####
+
+_Rope_RopeSubstring 是一个比较特殊的节点，它继承自 _Rope_RopeFunction<_Char
+T, \_Alloc> 和 char\_producer<\_CharT> 。它也属于 rope 中的一类叶节点，和 \_Rope\_RopeFunction 一样，它没有存储元素的数据域，\_Rope\_RopeSubstring 类型的节点中的数据域通过它的调用它的 operator() 函数获得，这点从它继承 char\_producer 可以看成。
+
+	template<class _CharT, class _Alloc>
+	struct _Rope_RopeSubstring : public _Rope_RopeFunction<_CharT,_Alloc>,
+				     public char_producer<_CharT> {
+
+<div class="cut"></div>
+
+在 \_Rope\_RopeSubstring 中定义了两个成员变量 \_M\_base 和 \_M\_start。前面说过 \_Rope\_RopeSubstring 类型的节点不存储元素，其元素是通过调用其 operator() 函数生成获得。当前节点的元素组成是 \_M\_base 中存储的元素序列的一个子串(substring)。\_M\_base 只能是 \_S\_function, \_S\_substring 和 \_S\_leaf 三种类型。这三种类型的节点中都有元素(有的是直接存储，有的通过生成获得)。
+
+\_Rope\_RopeSubstring 就是要获得它存储的 \_M\_base 节点中从 \_Start 之后 指定位置开始，指定长度的一个子串。而 \_M\_start 就是限定了子串只能取 \_M\_base 的元素序列中 \_M\_start 位置开始往后的。即当前元素所拥有的元素就是 \_M\_base 的元素序列中从位置 \_M\_start 到 \_M\_start + \_M\_size 之间的元素。
+
+	    _Rope_RopeRep<_CharT,_Alloc>* _M_base;      // not 0
+	    size_t _M_start;
+
+<div class="cut"></div>
+
+函数 operator() 实例话了父类 char\_producer 中的纯虚函数，函数的功能是获取当前节点的元素序列(当前节点的元素序列是 \_M\_base 的元素序列中从位置 \_M\_start 到 \_M\_base->size 的元素)中从位置 \_\_start\_pos 开始往后长度为 \_\_req\_len 的所有元素
+
+如果 \_M\_base 节点的类型为 为 \_S\_function 或者 \_S\_substringfn，则说明 \_M\_base 是通过函数生成其节点中的元素的，则首先获取到 \_M\_base 中的生成函数 \_M\_fn(当节点类型是 \_S\_function 时，它的节点由其成员 \_M\_fn 生成获得，但当节点类型为 \_S\_substring 时其函数由节点自己的 operator() 函数生成获得，应该调用 (\*\_M\_base )() 才对，这里调用其成员 \_M\_fn ，是因为 \_M\_fn 就是指向其本身(构造函数中会设置)，即 \_M\_base->\_M\_fn == \_M\_base ，所以调用 \_M\_fn 效果是一样的。
+
+函数中有两个断言，第一个要求请求的元素不能超出当前节点所拥有的元素范围，第二个断言要求当前节点的元素范围不能超出 \_M\_base 节点的元素范围。然后调用 \_M\_fn 的 operator() 函数将指定位置的节点生成存放到 \_\_buffer 开始的地址。
+
+如果 \_M\_base 节点的类型为 \_S\_leaf ，则获取 \_M\_base 中存放数据域的地址，并将该地址上指定位置的元素拷贝到 \_\_buffer 开始的地址上。
+
+如果节点的类型不为以上三种，则说明程序出现错误。
+
+	    virtual void operator()(size_t __start_pos, size_t __req_len,
+				    _CharT* __buffer) {
+		switch(_M_base->_M_tag) {
+		    case _S_function:
+		    case _S_substringfn:
+		      {
+			char_producer<_CharT>* __fn =
+				((_Rope_RopeFunction<_CharT,_Alloc>*)_M_base)->_M_fn;
+			__stl_assert(__start_pos + __req_len <= _M_size);
+			__stl_assert(_M_start + _M_size <= _M_base->_M_size);
+			(*__fn)(__start_pos + _M_start, __req_len, __buffer);
+		      }
+		      break;
+		    case _S_leaf:
+		      {
+			__GC_CONST _CharT* __s =
+				((_Rope_RopeLeaf<_CharT,_Alloc>*)_M_base)->_M_data;
+			uninitialized_copy_n(__s + __start_pos + _M_start, __req_len,
+					     __buffer);
+		      }
+		      break;
+		    default:
+		      __stl_assert(false);
+		}
+	    }
+
+<div class="cut"></div>
+
+构造函数中先对父类 \_Rope\_RopeFunction 进行初始化，使得其成员 \_M\_fn 指向其自身，同时对 \_M\_base, \_M\_start 进行初始化，并设置 \_M\_tag 为 \_S\_substringfn 。
+
+	    _Rope_RopeSubstring(_Rope_RopeRep<_CharT,_Alloc>* __b, size_t __s,
+				  size_t __l, allocator_type __a)
+	      : _Rope_RopeFunction<_CharT,_Alloc>(this, __l, false, __a),
+		char_producer<_CharT>(),
+		_M_base(__b),
+		_M_start(__s)
+	    {
+		__stl_assert(__l > 0);
+		__stl_assert(__s + __l <= __b->_M_size);
+		_M_tag = _S_substringfn;
+	    }
+
+<div class="cut"></div>
+
+####类模板 \_Rope\_char\_ref\_proxy####
+
+类模板 \_Rope\_char\_ref\_proxy 用来索引迭代器 \_Rope\_iterator 中的特定位置上的元素。
+
+	template<class _CharT, class _Alloc>
+	class _Rope_char_ref_proxy {
+
+<div class="cut"></div>
+
+函数中定义了三个友元类(虽然这三个类还没有定义，但在之前已经进行了声明)。
+
+	    friend class rope<_CharT,_Alloc>;
+	    friend class _Rope_iterator<_CharT,_Alloc>;
+	    friend class _Rope_char_ptr_proxy<_CharT,_Alloc>;
+
+<div class="cut"></div>
+
+定义了三个成员类型分别为 \_Self\_destruct\_ptr, \_RopeRep, \_My\_rope 。
+
+	typedef _Rope_RopeRep<_CharT,_Alloc>* _Self_destruct_ptr;
+	typedef _Rope_RopeRep<_CharT,_Alloc> _RopeRep;
+	typedef rope<_CharT,_Alloc> _My_rope;
+
+<div class="cut"></div>
+
+定义了四个成员变量，其中 \_M\_pos 表示当前索引的是 rope 中第 \_M\_pos 个元素。\_M\_current 表示第 \_M\_pos 个元素的值(只有 \_M\_current\_valid 为 ture 时该元素有效)。\_M\_current\_valid 表示 \_M\_current 中的值是否是正确可用的， \_M\_root 用来表示整个 rope 。
+
+	    size_t _M_pos;
+	    _CharT _M_current;
+	    bool _M_current_valid;
+	    _My_rope* _M_root;     // The whole rope.
+
+<div class="cut"></div>
+
+第一个构造函数对 \_M\_pos \_M\_current\_valid, \_M\_root 进行了初始化，第二个构造函数对用一个 \_Rope\_char\_ref\_proxy 的实例来初始化当前类，第三个构造函数对四个成员变量都进行了初始化。
+
+	    _Rope_char_ref_proxy(_My_rope* __r, size_t __p)
+	      :  _M_pos(__p), _M_current_valid(false), _M_root(__r) {}
+	    _Rope_char_ref_proxy(const _Rope_char_ref_proxy& __x)
+	      : _M_pos(__x._M_pos), _M_current_valid(false), _M_root(__x._M_root) {}
+	    _Rope_char_ref_proxy(_My_rope* __r, size_t __p, _CharT __c)
+      : _M_pos(__p), _M_current(__c), _M_current_valid(true), _M_root(__r) {}
+
+<div class="cut"></div>
+
+\_CharT 操作符函数返回当前类的索引值，如果 \_M\_current\_valid 为 true，则返回 \_M\_current，否则调用 \_S\_fecth 用来获取 \_M\_root 所表示的 rope 中的第 \_M\_pos 个位置的值。\_S\_fetch 函数在 rope 中定义。
+
+	template <class _CharT, class _Alloc>
+	inline _Rope_char_ref_proxy<_CharT, _Alloc>::operator _CharT () const
+	{
+	    if (_M_current_valid) {
+		return _M_current;
+	    } else {
+		return _My_rope::_S_fetch(_M_root->_M_tree_ptr, _M_pos);
+	    }
+	}
+
+<div class="cut"></div>
+
+函数 operator= 用来将 \_M\_root 所表示的 rope 中的第 \_M\_pos 个位置所指示的值变成指定值 \_\_c。函数中首先生成一个包含 0 到 M\_pos (不包括\_M\_pos 所在位置的值) 之间的值子树，并用该子树的根初始化节点 left。然后生成包含 \_M\_pos + 1 到 M\_root->\_M\_size 之间的值的另一棵子树，并用该子树的根来初始化节点 right。最后将 left 和 \_\_c 连接到一次，得到一个包含了 left 中元素和 \_\_c 的新子树，最后再将 \_\_left 和 right 拼接变成一棵树，将该树的根节点存放在 \_\_result 中。并更新 \_M\_root 的 \_M\_tree\_ptr 为 \_\_result
+
+	template <class _CharT, class _Alloc>
+	_Rope_char_ref_proxy<_CharT, _Alloc>&
+	_Rope_char_ref_proxy<_CharT, _Alloc>::operator= (_CharT __c) {
+	    _RopeRep* __old = _M_root->_M_tree_ptr;
+	    _Self_destruct_ptr __left(
+	      _My_rope::_S_substring(__old, 0, _M_pos));
+	    _Self_destruct_ptr __right(
+	      _My_rope::_S_substring(__old, _M_pos+1, __old->_M_size));
+	    _Self_destruct_ptr __result_left(
+	      _My_rope::_S_destr_concat_char_iter(__left, &__c, 1));
+
+	    _RopeRep* __result =
+			_My_rope::_S_concat(__result_left, __right);
+
+	    _M_root->_M_tree_ptr = __result;
+	    return *this;
+	}
+
+<div class="cut"></div>
+
+函数 operator&() 返回由当前类初始化的一个 \_Rope\_char\_ptr\_proxy 的实例。
+
+	template <class _CharT, class _Alloc>
+	_Rope_char_ptr_proxy<_CharT, _Alloc>
+	_Rope_char_ref_proxy<_CharT, _Alloc>::operator& () const {
+	    return _Rope_char_ptr_proxy<_CharT, _Alloc>(*this);
+	}
+
+<div class="cut"></div>
+
+函数 operator= 用来将给定 \_Rope\_char\_ref\_proxy \_\_c 所索引的值赋值给当前 \_Rope\_char\_ref\_proxy 。
+
+	    _Rope_char_ref_proxy& operator= (const _Rope_char_ref_proxy& __c) {
+		return operator=((_CharT)__c); 
+	    }
+
+<div class="cut"></div>
+
+####类模板 \_Rope\_char\_ptr\_proxy####
+
+类模板 \_Rope\_char\_ptr\_proxy 和 \_Rope\_char\_ref\_proxy 相对应，它可以看成 \_Rope\_char\_ref\_proxy 的一种指针形式，尽管它和 \_Rope\_char\_ref\_proxy\* 完全不同。
+
+	template<class _CharT, class _Alloc>
+	class _Rope_char_ptr_proxy {
+
+<div class="cut"></div>
+
+\_Rope\_char\_ptr\_proxy 将 \_Rope\_char\_ref\_proxy 设置为友元类，同样定义了两个成员函数 \_M\_pos 和 \_M\_root，\_M\_root 仍然是用来表示一个 rope ，而 \_M\_pos 表示当前类索引的元素位置。
+
+	    friend class _Rope_char_ref_proxy<_CharT,_Alloc>;
+	    size_t _M_pos;
+	    rope<_CharT,_Alloc>* _M_root;     // The whole rope.
+
+<div class="cut"></div>
+
+\_Rope\_char\_ptr\_proxy 中定义了如下四个构造函数。分别用 \_Rope\_char\_ref\_proxy, \_Rope\_char\_ptr\_proxy, 空内容 和 \_CharT\* 类型的变量来初始化当前类。
+
+	    _Rope_char_ptr_proxy(const _Rope_char_ref_proxy<_CharT,_Alloc>& __x) 
+	      : _M_pos(__x._M_pos), _M_root(__x._M_root) {}
+	    _Rope_char_ptr_proxy(const _Rope_char_ptr_proxy& __x)
+	      : _M_pos(__x._M_pos), _M_root(__x._M_root) {}
+	    _Rope_char_ptr_proxy() {}
+	    _Rope_char_ptr_proxy(_CharT* __x) : _M_root(0), _M_pos(0) {
+		__stl_assert(0 == __x);
+	    }
+
+<div class="cut"></div>
+
+operator\* 返回一个用当前类初始化的 \_Rope\_char\_ref\_proxy 的实例。
+
+	    _Rope_char_ref_proxy<_CharT,_Alloc> operator*() const {
+		return _Rope_char_ref_proxy<_CharT,_Alloc>(_M_root, _M_pos);
+	    }
+
+<div class="cut"></div>
+
+[STL 的 rope 分析（一）](../03/rope1.html)</br>
+[STL 的 rope 分析（二）](../03/rope2.html)</br>
+[STL 的 rope 分析（三）](../03/rope3.html)</br>
+[STL 的 rope 分析（四）](../03/rope4.html)</br>
+[STL 的 rope 分析（五）](../03/rope5.html)</br>
+[STL 的 rope 分析（六）](../03/rope6.html)</br>
+[STL 的 rope 分析（七）](../03/rope7.html)</br>

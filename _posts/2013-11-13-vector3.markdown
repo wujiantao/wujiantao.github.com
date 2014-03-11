@@ -1,0 +1,304 @@
+---
+title: STL 的 vector 分析（三）
+layout: post
+key: c9721cf8-8b63-48a5-a264-5fa147313dcf
+tags:
+  -vector 
+  -STL
+---
+
+
+front 函数和 back 函数分别返回 vector 的第一个和最后一个元素。end() 指示的位置 (也就是 \_M\_finish指示的位置) 是没有元素的，它指向最后一个元素的下一个位置。
+
+	  reference front() { return *begin(); }
+	  reference back() { return *(end() - 1); }
+
+<div class="cut"></div>
+push\_back 是在 vector 的尾部插入一个新的元素，函数首先看是否还存在多余的空间，如果有，则直接调用 construct 函数在 \_M\_finish 指示的位置上构建一个值为 \_\_x 类型为 \_Tp 的元素。
+
+如果没有多余的内存空间则会调用\_M\_insert\_aux 函数在尾部，插入一个元素，该函数中也会首先检测空间是否够，如果不够会重新申请空间。在空间已满的情况下， \M\_insert\_aux 中会分配原来内存空间的两倍作为新的内存空间大小，所以对于一个空的 vector ，如果用 push\_back 插入 n 个元素，大概需要 log (n) 次内存分配，就是大概会调用 \_M\_insert\_aux 函数 log(n) 次。通常 push\_back 来插入元素比 insert 效率要高很多，因为 insert 可能会导致元素的整体移动。当然 push\_back 和 insert(end()) 效率是一样的，因为为了避免元素移动， insert 都检测插入的位置是否为 end()。如果是，则插入的方法和 push\_back 是类似的。
+
+	  void push_back(const _Tp& __x) {
+	    if (_M_finish != _M_end_of_storage) {
+	      construct(_M_finish, __x);
+	      ++_M_finish;
+	    }
+	    else
+	      _M_insert_aux(end(), __x);
+	  }
+
+
+<div class="cut"></div>
+\_M\_insert\_aux 函数首先检测 vector 中的空间是否充裕，如果空间未满，则首先将 \_\_position 之后的元素整体往后挪动一个位置。这通过先在 \_M\_finish 指示的位置上构建一个对象，对象的值和元素的最后一个元素相同。然后调用 copy\_backward 将postion到倒数第二个元素整体往后移动一个位置。 不直接将\_\_position 之后的所有元素直接挪动，是因为这样会将最后一个元素挪动到一个没有初始化的原始内存区域，但 copy\_backward 实际进行复制是调用的 operator= 函数来初始化，而实际应该用拷贝构造函数进行初始化。挪动之后，直接对 \_\_position 指示的位置进行赋值。函数中都没有对 \_\_position 的位置进行检测，调用时就需要注意，不要让 \_\_position 的位置越界。
+
+如果 vector 中的空间已使用完毕，则重新申请新的内存，申请的策略是申请原先大小的两倍。这样做是用空间来换取时间，防止更新过频时，导致过多的内存申请，影响效率。内存申请完毕之后，调用 uninitialized\_copy 将原先 \_M\_start 到 \_\_postion 之间的元素 （不包括 \_\_postion) 复制到新的内存区域，然后在接下来的位置构建值为 \_\_x 的对象。再将 \_\_postion 到 \_M\_finish 之间的元素复制到之后，最后更新 \_M\_start , \_M\_finish \_M\_end\_of\_storage 。
+
+	vector<_Tp, _Alloc>::_M_insert_aux(iterator __position, const _Tp& __x)
+	{
+	  if (_M_finish != _M_end_of_storage) {
+	    construct(_M_finish, *(_M_finish - 1));
+	    ++_M_finish;
+	    _Tp __x_copy = __x;
+	    copy_backward(__position, _M_finish - 2, _M_finish - 1);
+	    *__position = __x_copy;
+	  }
+	  else {
+	    const size_type __old_size = size();
+	    const size_type __len = __old_size != 0 ? 2 * __old_size : 1;
+	    iterator __new_start = _M_allocate(__len);
+	    iterator __new_finish = __new_start;
+	    __STL_TRY {
+	      __new_finish = uninitialized_copy(_M_start, __position, __new_start);
+	      construct(__new_finish, __x);
+	      ++__new_finish;
+	      __new_finish = uninitialized_copy(__position, _M_finish, __new_finish);
+	    }
+	    __STL_UNWIND((destroy(__new_start,__new_finish), 
+			  _M_deallocate(__new_start,__len)));
+	    destroy(begin(), end());
+	    _M_deallocate(_M_start, _M_end_of_storage - _M_start);
+	    _M_start = __new_start;
+	    _M_finish = __new_finish;
+	    _M_end_of_storage = __new_start + __len;
+	  }
+	}
+
+<div class="cut"></div>
+swap 函数在前面已经提到过一点，其实现就是调用标准库中的 swap 函数将当前 vector 和 形参 \_\_x 的 \_M\_start, \_M\_finish, \_M\_end\_of\_storage 进行交换。
+
+	  void swap(vector<_Tp, _Alloc>& __x) {
+	    __STD::swap(_M_start, __x._M_start);
+	    __STD::swap(_M_finish, __x._M_finish);
+	    __STD::swap(_M_end_of_storage, __x._M_end_of_storage);
+	  }
+
+<div class="cut"></div>
+insert 函数和 push\_back 函数的函数体定义比较类似，不同之处在于 insert 有返回值，返回值是指向当前插入元素的迭代器。其次 insert 是在迭代器 \_\_postion指定的位置插入元素，原先\_\_postion 到 end() 之间的元素整体往后挪动一个位置 (包括 \_\_postion 指向的元素但不包括 end() 指向的元素) 。也即在原先\_\_postion 指示位置之前插入了一个新元素。但 push\_back 限定了插入的位置在最尾部，它和 insert(end()) 功能是一样的，效率上也是一样的。
+
+函数也是首先查看空间是否用完，如果未用完则判断是否在尾部进行插入。if 语句块中的内容和 push\_back 中 if 语句块中的内容是一样的。如果空间已满或者是待插入的元素的位置不是在尾部，则调用 \_M\_insert\_aux 函数进行插入。
+
+	  iterator insert(iterator __position, const _Tp& __x) {
+	    size_type __n = __position - begin();
+	    if (_M_finish != _M_end_of_storage && __position == end()) {
+	      construct(_M_finish, __x);
+	      ++_M_finish;
+	    }
+	    else
+	      _M_insert_aux(__position, __x);
+	    return begin() + __n;
+	  }
+
+<div class="cut"></div>
+函数模板 insert 根据模板形参的不同有两种定义 ，第一种定义用来在指定位置插入多个相同的元素，第二种定义用来将两个迭代器限定的空间中的内容插入到指定位置。 和前面的调用策略一样 insert 函数通过调用 \_M\_insert\_dispatch 函数来实现功能，而 \_M\_insert\_dispatch 一共有两个定义。通过判断传进来的模板实参的类型来决定调用哪个 \_M\_insert\_dispatch 。
+
+	  template <class _InputIterator>
+	  void insert(iterator __pos, _InputIterator __first, _InputIterator __last) {
+	    typedef typename _Is_integer<_InputIterator>::_Integral _Integral;
+	    _M_insert_dispatch(__pos, __first, __last, _Integral());
+	  }
+
+<div class="cut"></div>
+如果 insert 函数中传递进来的模板形参是一个整型类型，会调用下面的 \_M\_insert\_dispatch 定义。这个定义会将函数的第二个和第三个形参当成一个整型的变量。其中第二个形参表示待插入的元素个数，第三个形参表示待插入的元素值。然后调用 \_M\_fill\_insert  函数来实现最终的元素插入，但注意这里的 \_\_val 是一个整型的，在调用 \_M\_fill\_insert 时是强制将 \_\_val 转化为 \_Tp 类型，如果这种强制转换不成立，那么编译上就会有问题，所以只有能够通过整型强制转换的类型才能实例化这种定义。
+
+	  template <class _Integer>
+	  void _M_insert_dispatch(iterator __pos, _Integer __n, _Integer __val,
+				  __true_type)
+	    { _M_fill_insert(__pos, (size_type) __n, (_Tp) __val); }
+
+<div class="cut"></div>
+如果 insert 函数的模板实参不是整型，则认为传递进来的模板实参是一个迭代器类型，会调用下面这个定义。在下面的函数中会调用 \_M\_range\_insert 来实现将 \_\_first 和 \_\_last 之间的元素插入到\_\_position 之前的位置。
+
+	  template <class _InputIterator>
+	  void _M_insert_dispatch(iterator __pos,
+				  _InputIterator __first, _InputIterator __last,
+				  __false_type) {
+	    _M_range_insert(__pos, __first, __last, __ITERATOR_CATEGORY(__first));
+	  }
+
+<div class="cut"></div>
+上面的函数模板 insert 第二个形参和第三个形参必须相同，使得如果当前 vector 的元素类型不能通过整型强制转换时，则就不能通过上面的函数模板实现在指定位置插入相同元素的功能，在前面的 assign 函数模板中也有这样的问题，和上面的解决方法一样，这里为这一功能又专门定义了一个函数。
+
+	  void insert (iterator __pos, size_type __n, const _Tp& __x)
+	    { _M_fill_insert(__pos, __n, __x); }
+
+<div class="cut"></div>
+函数 \_M\_fill\_insert 实现在指定位置插入多个相同元素的功能，函数首先判断 \_\_n 是否等于 0 ，因为 size\_type 为 size\_t 的一个类型别名，size\_t 是无符号长整型。 \_\_n 不为负数。如果插入时传递的实参为负数，可能会带来意想不到的后果。本机测试了一下，插入的个数设为 -3 会抛出一个异常。因为较小的负数转换为无符号整数后是一个很大的正数。
+
+如果 \_\_n 不等于 0 , 判断剩余的内存空间是否能容纳 \_\_n 个元素。如果可以，则查看 \_\_position (包括 \_\_position) 之后的元素个数 \_\_elems\_after 是否大于 \_\_n ，如果大于 \_\_n 则 end() 之前的 n 个元素会挪动到原先没有构造对象的内存区域上，position 之后的 \_\_elems\_after - \_n 个元素往后挪动 \_\_n 个位置后会挪动到原先已经构造了对象的内存区域。分别调用 uninitialized\_fill 和 fill 将\_\_postion 到 end() 之见的元素往后挪动 \_\_n 个位置之后，再在\_\_positon 之后（包括 \_\_position）的位置上填充 \_\_n 个值为 \_\_x 的元素 。
+
+如果 \_\_elems\_after 小于 \_\_n 则待插入的 \_\_n 个元素会有 \_\_n - elems\_after 个元素插入到未初始化的内存区域，同时原先 \_\_postion 到 end() 之间的元素往后移动 \_\_n 个位置之后会全部移动到未初始化的内存区域。将 \_\_elems\_after 个元素填充到原先 (插入之前）\_\_postion 到 \_M\_finish 的位置。
+
+如果剩余的空间已经不够容纳 \_\_n 个元素，则需要重新申请空间，这里选择的申请空间的大小是 \_\_old\_size + max (\_\_old\_size, \_\_n)。如果 \_\_n 小于 \_\_old\_size 则和原先的策略一样仍然使用原先 size() 的两倍作为新申请的空间大小。否则用 \_\_old\_size + n 来作为新申请的空间的大小。
+
+空间申请之后，会先将原先 \_M\_start 到 \_\_position （不包括\_\_postion) 位置的元素复制到新地址，接着在后续的地址空间再插入\_\_n 个值为 \_\_x 的元素。最后将原先 \_\_postion 到 \_M\_finish 之间的元素插入到后续地址。这三个插入操作都是在一个 try 块中，这是防止出现错误，在 catch 的异常处理块中将地址中已经构建的对象销毁，并将申请的空间释放，接着再将当前的异常向上抛出。如果没出现异常，则说明插入是成功的，则将旧地址上构建的对象销毁，并释放原先申请的空间，最后更新 \_M\_start, \_M\_finish, \_M\_end\_of\_storage 。
+
+	void vector<_Tp, _Alloc>::_M_fill_insert(iterator __position, size_type __n, 
+						 const _Tp& __x)
+	{
+	  if (__n != 0) {
+	    if (size_type(_M_end_of_storage - _M_finish) >= __n) {
+	      _Tp __x_copy = __x;
+	      const size_type __elems_after = _M_finish - __position;
+	      iterator __old_finish = _M_finish;
+	      if (__elems_after > __n) {
+		uninitialized_copy(_M_finish - __n, _M_finish, _M_finish);
+		_M_finish += __n;
+		copy_backward(__position, __old_finish - __n, __old_finish);
+		fill(__position, __position + __n, __x_copy);
+	      }
+	      else {
+		uninitialized_fill_n(_M_finish, __n - __elems_after, __x_copy);
+		_M_finish += __n - __elems_after;
+		uninitialized_copy(__position, __old_finish, _M_finish);
+		_M_finish += __elems_after;
+		fill(__position, __old_finish, __x_copy);
+	      }
+	    }
+	    else {
+	      const size_type __old_size = size();        
+	      const size_type __len = __old_size + max(__old_size, __n);
+	      iterator __new_start = _M_allocate(__len);
+	      iterator __new_finish = __new_start;
+	      __STL_TRY {
+		__new_finish = uninitialized_copy(_M_start, __position, __new_start);
+		__new_finish = uninitialized_fill_n(__new_finish, __n, __x);
+		__new_finish
+		  = uninitialized_copy(__position, _M_finish, __new_finish);
+	      }
+	      __STL_UNWIND((destroy(__new_start,__new_finish), 
+			    _M_deallocate(__new_start,__len)));
+	      destroy(_M_start, _M_finish);
+	      _M_deallocate(_M_start, _M_end_of_storage - _M_start);
+	      _M_start = __new_start;
+	      _M_finish = __new_finish;
+	      _M_end_of_storage = __new_start + __len;
+	    }
+	  }
+	}
+
+<div class="cut"></div>
+根据\_\_ 迭代器的类型不同 \_\_M\_range\_insert 也有两种实现，如果迭代器类型为 input\_iterator\_tag 则将\_\_first 到 \_\_last 中的元素调用 insert (iterator, const \_Tp&) 逐个插入。
+
+	template <class _Tp, class _Alloc> template <class _InputIterator>
+	void 
+	vector<_Tp, _Alloc>::_M_range_insert(iterator __pos, 
+					     _InputIterator __first, 
+					     _InputIterator __last,
+					     input_iterator_tag)
+	{
+	  for ( ; __first != __last; ++__first) {
+	    __pos = insert(__pos, *__first);
+	    ++__pos;
+	  }
+	}
+
+<div class="cut"></div>
+如果迭代器的类型为 forward\_iterator\_tag 则调用下面的定义。其实这个函数的思想和前面介绍的 \_M\_fill\_insert 是一样的，除了 \_M\_fill\_insert 中时调用 uninitialized\_fill 和 fill 来实现元素的插入，而这里是调用 uninitialized\_copy 和 copy 来实现元素的拷贝。对于fill 和 copy 的区别，简单的说 fill 是拿相同的元素去填充一片指定的内存空间，内存空间的范围由起始地址和待填充的元素个数来确定，而 copy 是将指定的内存空间的多个元素拷贝到另一片内存空间，源地址空间由起始地址和结束地址确定，只需给定目的地址空间的起始地址即可，copy 函数不会检测目的地址空间是否能够容纳源地址的所有元素，因此在调用时一定要确保目的地址空间的大小不能低于源地址空间的大小。
+
+	template <class _Tp, class _Alloc> template <class _ForwardIterator>
+	void 
+	vector<_Tp, _Alloc>::_M_range_insert(iterator __position,
+					     _ForwardIterator __first,
+					     _ForwardIterator __last,
+					     forward_iterator_tag)
+	{
+	  if (__first != __last) {
+	    size_type __n = 0;
+	    distance(__first, __last, __n);
+	    if (size_type(_M_end_of_storage - _M_finish) >= __n) {
+	      const size_type __elems_after = _M_finish - __position;
+	      iterator __old_finish = _M_finish;
+	      if (__elems_after > __n) {
+		uninitialized_copy(_M_finish - __n, _M_finish, _M_finish);
+		_M_finish += __n;
+		copy_backward(__position, __old_finish - __n, __old_finish);
+		copy(__first, __last, __position);
+	      }
+	      else {
+		_ForwardIterator __mid = __first;
+		advance(__mid, __elems_after);
+		uninitialized_copy(__mid, __last, _M_finish);
+		_M_finish += __n - __elems_after;
+		uninitialized_copy(__position, __old_finish, _M_finish);
+		_M_finish += __elems_after;
+		copy(__first, __mid, __position);
+	      }
+	    }
+	    else {
+	      const size_type __old_size = size();
+	      const size_type __len = __old_size + max(__old_size, __n);
+	      iterator __new_start = _M_allocate(__len);
+	      iterator __new_finish = __new_start;
+	      __STL_TRY {
+		__new_finish = uninitialized_copy(_M_start, __position, __new_start);
+		__new_finish = uninitialized_copy(__first, __last, __new_finish);
+		__new_finish
+		  = uninitialized_copy(__position, _M_finish, __new_finish);
+	      }
+	      __STL_UNWIND((destroy(__new_start,__new_finish), 
+			    _M_deallocate(__new_start,__len)));
+	      destroy(_M_start, _M_finish);
+	      _M_deallocate(_M_start, _M_end_of_storage - _M_start);
+	      _M_start = __new_start;
+	      _M_finish = __new_finish;
+	      _M_end_of_storage = __new_start + __len;
+	    }
+	  }
+	}
+
+<div class="cut"></div>
+pop\_back 函数是删掉尾部的一个元素。其实现就是将 \_M\_finish 往前移动一个位置，同时销毁被删除的元素，注意这里只是对元素进行销毁，并没有对申请的内存进行释放，destory 不负责内存的释放，只会调用对象的析构函数销毁对象。
+
+	  void pop_back() {
+	    --_M_finish;
+	    destroy(_M_finish);
+	  }
+
+<div class="cut"></div>
+erase 函数删除 \_\_postion 指定的位置上的元素，如果删除的不是最后一个元素，则将 \_\_postion 之后 (不包括 position）的元素往前挪动一个位置就相当于实现了删除。否则不需要挪动， 函数没有对 \_\_postion 的位置进行检测，如果 \_postion 指示的位置不是合法的位置可能会导致难以预料的错误。移动元素之后，对 \_M\_finish 进行修改。并销毁原先最后一个位置的元素。和 pop\_back 类似，删除的元素会被销毁，但其占有的空间不会释放。
+
+	  iterator erase(iterator __position) {
+	    if (__position + 1 != end())
+	      copy(__position + 1, _M_finish, __position);
+	    --_M_finish;
+	    destroy(_M_finish);
+	    return __position;
+	  }
+
+<div class="cut"></div>
+erase 的另一个重载函数是删除两个迭代器之间的元素。函数的实现与上面类似，先将 \_\_last 之后的元素整体往前移动，使得移动后原先处于 \_\_last 位置的元素移动到\_\_first 的位置，后面的依次移动。删除之后再销毁后面的对象。（这里程序中 copy 函数返回的是原先 vector 中最后一个元素移动到的位置的下一个位置)。销毁 copy 函数返回值之后的所有元素，并更新 \_M\_finish 。
+
+	  iterator erase(iterator __first, iterator __last) {
+	    iterator __i = copy(__last, _M_finish, __first);
+	    destroy(__i, _M_finish);
+	    _M_finish = _M_finish - (__last - __first);
+	    return __first;
+	  }
+
+<div class="cut"></div>
+resize 函数将 vector 中的元素个数重新设定为指定的 \_new\_size 。如果 vector 中当前元素的个数小于 \_\_new\_size，则增加 \_\_new\_size - size() 个的元素值为 \_\_x 的元素。否则删除多余的元素使得元素的个数只为 \_\_new\_size 。else 语句中的 insert 函数为满足元素个数达到\_\_new\_size 的条件可能需要重新申请内存的情况。
+
+resize 和 reserve 的不同，首先 resize 重新设定的是元素个数(即 size()) 。而 reserve 重新设定的是容量 capacity 。其次 resize 函数调用之后，vector 的 size() 是一定等于之前设定的大小的，但 reserve 设定之后 capacity 可能比之前函数中要求的值要大。再者 resize 会带来元素的变更，而 reserve 不会。
+
+	  void resize(size_type __new_size, const _Tp& __x) {
+	    if (__new_size < size()) 
+	      erase(begin() + __new_size, end());
+	    else
+	      insert(end(), __new_size - size(), __x);
+	  }
+
+
+<div class="cut"></div>
+operator== 函数判断两个 vector 是否相等。这个函数不是 vector 的成员函数。其实现是首先判断元素个数是否相同，如果相同，则逐个比对元素的个数是否相等。equal 函数在 stl\_algobase.h 中定义。
+
+	operator==(const vector<_Tp, _Alloc>& __x, const vector<_Tp, _Alloc>& __y)
+	{
+	  return __x.size() == __y.size() &&
+		 equal(__x.begin(), __x.end(), __y.begin());
+	}
+
+<div class="cut"></div>
+
+[STL 的 vector 分析（一）](../13/vector1.html)</br>
+[STL 的 vector 分析（二）](../13/vector2.html)</br>
+[STL 的 vector 分析（三）](../13/vector3.html)</br>

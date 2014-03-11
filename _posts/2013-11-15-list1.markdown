@@ -1,0 +1,196 @@
+---
+title: STL 的 list 分析（一）
+layout: post
+key: 24caf3cd-e7f5-4fa2-b4cb-30f29339de31
+tags:
+  -list 
+  -STL 
+---
+
+stl\_list.h 中定义了一些辅助类，其中 \_List\_node\_base ，\_List\_node 用来表示 list 的节点，\_List\_iterator\_base ，\_List\_iterator 通过封装 \_List\_node\_base 的指针来作为 list 的迭代器。\_List\_alloc\_base ，\_List\_base 用来封装内存分配器 \_Alloc 实现 list 的内存分配和回收。
+<div class="cut"></div>
+
+####类模板 \_List\_node\_base####
+
+\_List\_node\_base，作为 _List_node 的基类，内部定义两个 \_List\_node\_base 的指针 \_M\_next 和 \_M\_prev 。_M_next 和 _M_prev 分别用来指向当前节点的后向节点和前向节点。
+
+	struct _List_node_base {
+	  _List_node_base* _M_next;
+	  _List_node_base* _M_prev;
+	};
+
+<div class="cut"></div>
+####类模板 \_List\_node\_base####
+
+\_List\_node 是 \_List\_node\_base 的派生类，它继承基类定义的两个指针(基类的指针可以用来指向派生类的对象)，和我们通过构造链表时定义的结构是相似的。\_List\_node 中定义了一个 \_Tp 类型的对象 \_M\_data ，作为节点的数据域。最终 list 就是有多个 \_List\_node <T> 的对象通过指针链接而成。
+
+	template <class _Tp>
+	struct _List_node : public _List_node_base {
+	  _Tp _M_data;
+	};
+
+<div class="cut"></div>
+####类模板 \_List\_iterator\_bae####
+
+\_List\_iterator\_base 中定义了一个成员类型 iterator\_category 。它是 bidirectional\_iterator\_tag 的一个类型别名。前面已经介绍过在 stl\_iterator\_base.h 中定义了五个空类，用来表示迭代器类型，其中 bidrectional\_iterator\_tag 就是其中之一。
+
+	  typedef bidirectional_iterator_tag iterator_category; 
+
+同时类内部还定义了一个成员变量 \_M\_node 。\_List\_iterator\_base 就是要实现对 \_List\_node\_base 指针的一个封装。
+
+	  _List_node_base* _M_node;
+
+<div class="cut"></div>
+\_List\_node\_base 定义了两个构造函数。
+
+	  _List_iterator_base(_List_node_base* __x) : _M_node(__x) {}
+	  _List_iterator_base() {}
+
+<div class="cut"></div>
+定义了四个成员函数，分别为 \_M\_incr , \_M\_decr , operator== , operator!= ，其定义十分简单，自阅。
+
+	  void _M_incr() { _M_node = _M_node->_M_next; }
+	  void _M_decr() { _M_node = _M_node->_M_prev; }
+
+	  bool operator==(const _List_iterator_base& __x) const {
+	    return _M_node == __x._M_node;
+	  }
+	  bool operator!=(const _List_iterator_base& __x) const {
+	    return _M_node != __x._M_node;
+	  }
+
+<div class="cut"></div>
+#### 类模板 \_List\_iterator####
+\_List\_iterator 是 \_List\_iterator\_base 的一个派生类，首先他继承了 \_List\_iterator\_base 的所有成员，因为 \_List\_iterator\_base 的内部成员都是 public 属性。同时 \_List\_iterator 还重载了 operator\* , operaotr-> , operator++ , operator-- ，其中 ++ 和 -- 分前置和后置，两种都进行了重载。
+
+<div class="cut"></div>
+\_List\_iterator 作为 list 的迭代器，其内部首先定义了迭代器约定俗成的五种成员类型。其中成员类型 iterator\_category 已在基类中进行定义。 
+
+	  typedef _List_iterator<_Tp,_Tp&,_Tp*>             iterator;
+	  typedef _Tp value_type;
+	  typedef _Ptr pointer;
+	  typedef _Ref reference;
+
+<div class="cut"></div>
+成员类型 \_Node 为 \_List\_node<\_Tp> 的类型别名。 const\_iterator 为 \_List\_iterator<\_Tp,const \_Tp&,const \_Tp\*> 的类型别名。
+
+	  typedef _List_node<_Tp> _Node;
+	  typedef _List_iterator<_Tp,const _Tp&,const _Tp*> const_iterator;
+
+<div class="cut"></div>
+\_List\_iterator 中一共有三个构造函数，第一个构造函数中用给定 \_Node 类型的指针初始化基类的成员变量 \_M\_node。同时没有加关键值 explicit 说明 \_Node\* 类型的变量可以隐身转化为 \_List\_iterator 的对象，这种隐式转换在 list 中的一些函数中可以见到，比如 list 中的 begin 函数。
+
+第二个构造函数为空构造函数，第三个构造函数用指定 const iterator 的实例 \_\_x 初始化当前迭代器。
+
+	  _List_iterator(_Node* __x) : _List_iterator_base(__x) {}
+	  _List_iterator() {}
+	  _List_iterator(const iterator& __x) : _List_iterator_base(__x._M_node) {}
+
+<div class="cut"></div>
+operator\*函数实现对迭代器实现解引用，函数返回 \_M\_node 指向的对象的数据域的内容。
+
+	  reference operator*() const { return ((_Node*) _M_node)->_M_data; }
+
+而 operator-> 函数返回\_M\_node 指向的对象的\_M\_data 的地址。也就是一个指向 \_M\_data 的指针。
+
+	  pointer operator->() const { return &(operator*()); }
+
+<div class="cut"></div>
+operator++ 的后置自增，将当前 \_M\_node 移动到 \_M\_node->\_M\_next 所在的位置，并返回移动之后的状态。\_Self 是 \_List\_iterator<\_Tp, \_Ref, \_Ptr> 一个类型别名。
+
+	  _Self& operator++() { 
+	    this->_M_incr();
+	    return *this;
+	  }
+
+operator++ 的前置自增是将当前 \_M\_node 移动到 \_M\_node->\_M\_next 所在的位置。并返回移动之前的状态。
+
+	_Self operator++(int) { 
+	    _Self __tmp = *this;
+	    this->_M_incr();
+	    return __tmp;
+	  }
+
+operator-- 的实现和 operator++ 类似，只是 operator-- 移动 \_M\_node->\_M\_prev 所在的位置。这里不再重述。
+<div class="cut"></div>
+
+####类模板 \_List\_alloc\_bae####
+
+类模板 \_List\_alloc\_base 用来对 list 进行内存分配和内存回收。模板形参中 \_Tp 用来表示 list 节点(\_List\_node) 中数据域(\_M\_data)的类型，\_Allocator 用来指定内存分配器， \_IsStatic 用来表示 \_Allocator 类型的不同实例之间是否没有区别
+
+	template <class _Tp, class _Allocator, bool _IsStatic>
+	class _List_alloc_base {
+		......
+	};
+
+<div class="cut"></div>
+类中定义了一个 allocator\_type 类型的对象 \_Node\_allocator ，用来为 \_List\_node<\_Tp> 类型的对象进行内存分配。同时定义了一个 \_List\_node<\_Tp>\* \_M\_node 的指针。在 \_List\_iterator\_base 中也定义了一个成员变量为 \_M\_node ，该 \_M\_node 为 \_List\_node\_base 的一个指针，这里的 \_M\_node 为 \_List\_node<\_Tp>\* 类型的指针。\_List\_node\_base 是 \_List\_node<\_Tp> 的基类。
+
+	  typename _Alloc_traits<_List_node<_Tp>, _Allocator>::allocator_type
+		   _Node_allocator;
+	  _List_node<_Tp>* _M_node;
+
+<div class="cut"></div>
+
+在 \_List\_alloc\_base 中还定义了两个 protected 属性的成员函数。分别为 \_M\_get\_node 和 \_M\_put\_node ，其中 \_M\_get\_node 是通过 \_Node\_allocator 分配一个 \_List\_node<\_Tp> 所需的内存空间，注意不是 \_Tp 而是 \_List\_node<\_Tp> 。
+
+	  _List_node<_Tp>* _M_get_node()
+	   { return _Node_allocator.allocate(1); }
+
+\_M\_put\_node 函数用来释放申请的空间。
+
+	  void _M_put_node(_List_node<_Tp>* __p)
+	    { _Node_allocator.deallocate(__p, 1); }
+
+<div class="cut"></div>
+当第三个模板形参为 true时 \_List\_alloc\_base 有一个偏特化的定义。 这个定义中没有声明实例来进行内存分配，而是定义了一个 \_Alloc\_type 的成员类型，通过 \_Alloc\_type 的静态成员函数进行内存分配。
+
+	  typedef typename _Alloc_traits<_List_node<_Tp>, _Allocator>::_Alloc_type _Alloc_type;
+
+<div class="cut"></div>
+####类模板 \_List\_alloc####
+
+类模板 \_List\_alloc 继承自 \_List\_alloc\_base ，其中有两个模板形参分别为 \_Tp 和 \_Alloc 。用 \_Tp 和 \_Alloc 先例化 \_Alloc\_traits，然后用 \_Tp , \_Alloc ，以及 \_Alloc\_traits 中的 \_S\_instanceless 来实例化 \_List\_alloc\_base 。
+
+<div class="cut"></div>
+\_List\_base 有一个构造函数，在该构造函数有一个 const allocator\_type (allocator\_type 是基类 allocator\_type 的类型别名) 类型的形参，，用这个形参调用基类的构造函数对基类进行初始化 。函数体中调用基类的 \_M\_get\_node 函数申请一个 \_List\_node<\_Tp> 所需的内存空间，并将空间的地址赋给 \_M\_node ，\_M\_node 也是继承自基类的成员变量，并将 \_M\_node 的 \_M\_next 和 \_M\_prev 都指向自身。
+
+在 list 中 \_M\_node 被作为哨兵节点，它的 \_M\_next 指针指向 list 的第一个元素，它的 \_M\_prev 指向 list 的最后一个元素。list 的第一个元素的 \_M\_prev 指针指向 \_M\_node，list 的最后一个元素的 \_M\_next 指针指向 \_M\_node。通过 \_M\_node 相当于将 list 组织成了一个环。
+
+	  _List_base(const allocator_type& __a) : _Base(__a) {
+	    _M_node = _M_get_node();
+	    _M_node->_M_next = _M_node;
+	    _M_node->_M_prev = _M_node;
+	  }
+
+<div class="cut"></div>
+clear 函数用来释放整个链表（不包括哨兵节点）的空间，在 \_List\_base 的析构函数中会调用它。 指针 \_\_cur 首先指向 list 的第一个元素(_M_node->_M_next)，然后向后遍历，直到遍历完整个链表（即遇到哨兵节点）。遍历过程中每遇到一个节点都先调用节点数据域的析构函数，然后调用基类的 \_M\_put\_node 来释放空间，clear 之后整个链表只剩下哨兵节点。
+
+	template <class _Tp, class _Alloc>
+	void 
+	_List_base<_Tp,_Alloc>::clear() 
+	{
+	  _List_node<_Tp>* __cur = (_List_node<_Tp>*) _M_node->_M_next;
+	  while (__cur != _M_node) {
+	    _List_node<_Tp>* __tmp = __cur;
+	    __cur = (_List_node<_Tp>*) __cur->_M_next;
+	    _Destroy(&__tmp->_M_data);
+	    _M_put_node(__tmp);
+	  }
+	  _M_node->_M_next = _M_node;
+	  _M_node->_M_prev = _M_node;
+	}
+
+<div class="cut"></div>
+析构函数首先调用 clear 函数，然后再调用 \_M\_put\_node 释放哨兵节点的空间，也就是 \_M\_node 指向的地址的空间。
+
+	  ~_List_base() {
+	    clear();
+	    _M_put_node(_M_node);
+	  }
+
+<div class="cut"></div>
+
+[STL 的 list 分析（一）](../15/list1.html)</br>
+[STL 的 list 分析（二）](../15/list2.html)</br>
+[STL 的 list 分析（三）](../15/list3.html)</br>

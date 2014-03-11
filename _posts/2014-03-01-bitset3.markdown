@@ -1,0 +1,215 @@
+---
+title: STL 的 bitset 分析（三）
+layout: post
+key: cd712e0b-1786-461e-9dd8-33d80b9fab82
+tags:
+  -bitset 
+  -STL
+---
+
+函数 operator&= 将当前 bitset 与给定 bitset \_\_rhs 进行按位与。
+
+	  bitset<_Nb>& operator&=(const bitset<_Nb>& __rhs) {
+	    this->_M_do_and(__rhs);
+	    return *this;
+	  }
+
+<div class="cut"></div>
+	  
+函数 operator|= 将当前 bitset 与给定 bitset \_\_rhs 进行按位或。
+
+	  bitset<_Nb>& operator|=(const bitset<_Nb>& __rhs) {
+	    this->_M_do_or(__rhs);
+	    return *this;
+	  }
+
+<div class="cut"></div>
+	  
+函数 operator^= 将当前 bitset 与给定 bitset \_\_rhs 进行按位异或。
+
+	  bitset<_Nb>& operator^=(const bitset<_Nb>& __rhs) {
+	    this->_M_do_xor(__rhs);
+	    return *this;
+	  }
+
+<div class="cut"></div>
+	  
+函数 operator<<= 将当前 bitset 算术左移 \_\_pos 位。
+
+	  bitset<_Nb>& operator<<=(size_t __pos) {
+	    this->_M_do_left_shift(__pos);
+	    this->_M_do_sanitize();
+	    return *this;
+	  }
+
+<div class="cut"></div>
+	  
+函数 operator>>= 将当前 bitset 算术右移 \_\_pos 位。
+
+	  bitset<_Nb>& operator>>=(size_t __pos) {
+	    this->_M_do_right_shift(__pos);
+	    this->_M_do_sanitize();
+	    return *this;
+	  }
+
+<div class="cut"></div>
+	  
+函数 \_Unchecked\_set 将当前 bitset 的第 \_\_pos 位置为 1。但不检测 \_\_pos 是否为有效位。
+
+	  bitset<_Nb>& _Unchecked_set(size_t __pos) {
+	    this->_M_getword(__pos) |= _Base::_S_maskbit(__pos);
+	    return *this;
+	  }
+
+<div class="cut"></div>
+	  
+函数 \_Unchecked\_set 将当前 bitset 的第 \_\_pos 位置为指定值，如果 \_\_val 非 0 则置为 1，否则置为 0 。不检测 \_\_pos 所在的位是否为有效位。
+
+	  bitset<_Nb>& _Unchecked_set(size_t __pos, int __val) {
+	    if (__val)
+	      this->_M_getword(__pos) |= _Base::_S_maskbit(__pos);
+	    else
+	      this->_M_getword(__pos) &= ~_Base::_S_maskbit(__pos);
+
+	    return *this;
+	  }
+
+<div class="cut"></div>
+	  
+函数 Unchecked\_reset 将当前 bitset 的第 \_\_pos 位置为 0 。不检测 \_\_pos 所在的位是否为有效位。
+
+	  bitset<_Nb>& _Unchecked_reset(size_t __pos) {
+	    this->_M_getword(__pos) &= ~_Base::_S_maskbit(__pos);
+	    return *this;
+	  }
+
+<div class="cut"></div>
+	  
+函数 Unchecked\_flip 将当前 bitset 的第 \_\_pos 位置为 1 。不检测 \_\_pos 所在的位是否为有效位。
+
+	  bitset<_Nb>& _Unchecked_flip(size_t __pos) {
+	    this->_M_getword(__pos) ^= _Base::_S_maskbit(__pos);
+	    return *this;
+	  }
+
+<div class="cut"></div>
+	  
+函数 Unchecked\_test 判断当前 bitset 的 \_\_pos 位是否为 1。如果为 1 则返回 true，否则返回 false。
+
+	  bool _Unchecked_test(size_t __pos) const {
+	    return (this->_M_getword(__pos) & _Base::_S_maskbit(__pos))
+	      != static_cast<_WordT>(0);
+	  }
+
+<div class="cut"></div>
+	  
+函数 set 将 bitset 的所有位置为 1。
+
+	  bitset<_Nb>& set() {
+	    this->_M_do_set();
+	    this->_M_do_sanitize();
+	    return *this;
+	  }
+
+<div class="cut"></div>
+	  
+函数 set 将 bitset 的第 \_\_pos 位置为 1 。
+
+	  bitset<_Nb>& set(size_t __pos) {
+	    if (__pos >= _Nb)
+	      __STL_THROW(out_of_range("bitset"));
+
+	    return _Unchecked_set(__pos);
+	  }
+
+<div class="cut"></div>
+	  
+函数 set 根据 \_\_val 的值将 bitset 的第 \_\_pos 位置为指定的值。
+
+	  bitset<_Nb>& set(size_t __pos, int __val) {
+	    if (__pos >= _Nb)
+	      __STL_THROW(out_of_range("bitset"));
+
+	    return _Unchecked_set(__pos, __val);
+	  }
+
+<div class="cut"></div>
+	  
+函数 reset 将 bitset 的所有位置为 0。
+
+	  bitset<_Nb>& reset() {
+	    this->_M_do_reset();
+	    return *this;
+	  }
+
+<div class="cut"></div>
+	  
+函数 reset 将 bitset 的第 \_\_pos 位置为 0 。
+
+	  bitset<_Nb>& reset(size_t __pos) {
+	    if (__pos >= _Nb)
+	      __STL_THROW(out_of_range("bitset"));
+
+	    return _Unchecked_reset(__pos);
+	  }
+
+<div class="cut"></div>
+	  
+函数 flip 将 bitset 的所有位按位取反。
+
+	  bitset<_Nb>& flip() {
+	    this->_M_do_flip();
+	    this->_M_do_sanitize();
+	    return *this;
+	  }
+
+<div class="cut"></div>
+	  
+函数 flip 将 bitset 的第 \_\_pos 为取反。
+
+	  bitset<_Nb>& flip(size_t __pos) {
+	    if (__pos >= _Nb)
+	      __STL_THROW(out_of_range("bitset"));
+
+	    return _Unchecked_flip(__pos);
+	  }
+
+<div class="cut"></div>
+	  
+函数 operator~ 返回将当前 bitset 所有位取反之后得到的新 bitset 。
+
+	  bitset<_Nb> operator~() const { 
+	    return bitset<_Nb>(*this).flip();
+	  }
+
+<div class="cut"></div>
+	  
+第一个 operator[] 函数返回一个索引当前 bitset 第 \_\_pos 位的 reference 实例，第二个 operator[] 函数返回当前 bitset 的第 \_\_pos 位的值。
+
+	  reference operator[](size_t __pos) { return reference(*this,__pos); }
+	  bool operator[](size_t __pos) const { return _Unchecked_test(__pos); }
+
+<div class="cut"></div>
+	  
+函数 to\_ulong 获得将当前 bitset 变成无符号长整数后的值。
+
+	  unsigned long to_ulong() const { return this->_M_do_to_ulong(); }
+	  
+<div class="cut"></div>
+	  
+函数 to\_string 返回当前 bitset 转换成字符串后的形式
+
+	  template <class _CharT, class _Traits, class _Alloc>
+	  basic_string<_CharT, _Traits, _Alloc> to_string() const {
+	    basic_string<_CharT, _Traits, _Alloc> __result;
+	    _M_copy_to_string(__result);
+	    return __result;
+	  }
+
+
+<div class="cut"></div>
+
+[STL 的 bitset 分析（一）](../01/bitset1.html)</br>
+[STL 的 bitset 分析（二）](../01/bitset2.html)</br>
+[STL 的 bitset 分析（三）](../01/bitset3.html)</br>
+[STL 的 bitset 分析（四）](../01/bitset4.html)</br>

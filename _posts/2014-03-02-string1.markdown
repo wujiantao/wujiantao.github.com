@@ -1,0 +1,330 @@
+---
+title: STL 的 string 分析（一）
+layout: post
+key: c8e0bdbf-71e0-45ac-9aed-7b787d01a280
+tags:
+  -string 
+  -STL
+---
+
+####类模板 \_Not\_with\_traits####
+
+string 中首先定义了一个一个类模板 \_Not\_within\_traits。他可以看成是一个辅助类，它继承了 unary\_function<typename \_Traits::char\_type, bool> ，其中 unary\_function 是一个一元的函数对象。typename \_Traits::char\_type 表示其形参类型，而 bool 为其返回值类型。 \_Traits 应该用 char\_traits 来进行实例化， char\_traits 中有一个成员类型 char\_type 。
+
+<div class="cut"></div>
+
+对于函数对象，首先它是一个类，stl 中定义的有一元和二元函数对象，其中一元函数对象继承自 unary\_function 的模板类，unary\_function 中有两个成员类型 argument\_type 和 result\_type，分别作为形参类型(只有一个形参)和返回类型。而二元函数对象继承自 binary\_function 的模板类，binary\_function 中定义了三个成员类型, first\_argument\_type, second\_argument\_type 和 result\_type，分别为第一个形参类型，第二个形参类型和返回类型。假设 class A 继承自 unary\_function，是一个函数对象，那么 class A 中应该重载了形如 result\_type operator()(argument\_type&) 的 operator() 函数。这样声明一个 class A的实例 a 和一个 argument\_type 的变量 arg，语句 a(arg) 就会调用 a 的 operator() 函数。使得 a 看起来如同一个函数。而对于二元函数对象，其内部则会重载 result\_type operator()(first\_argument\_type&, second\_argument\_type&)。
+
+<div class="cut"></div>
+
+\_Not\_within\_straits 中定义了两个成员变量 \_M\_first 和 \_M\_last ，二者都是 \_Triaits::char\_type\* 类型。构造函数中对成员变量 \_M\_first 和 \_M\_last 进行初始化。
+
+函数 operator() 实现的功能是用来判断 \_M\_first 开始到 \_M\_last 结束的位置上是否不包含值为 \_\_x 的元素，但如果 find\_if 查找到，则返回 false，如果没查找到(find\_if 返回值为 \_M\_last)则返回 true。首先 \_Eq\_traits<\_Traits> 是一个二元的函数对象，其中定义了 bool operator()(\_Traits::char\_type&, \_Traits::char\_type&) 用来比较两个 \_Traits::char\_type 类型的变量是否相等。bind1st 返回一个 binder1st 的实例，binder1st 是一个一元函数对象，这里得到 binder1st 的实例有两个成员，类型分别为 \_Eq\_traits<\_Traits> 和 \_Traits::char\_type，在 bind1st 中会分别用 \_Eq\_traits<\_Traits>() 和 \_\_x 对其进行初始化。在函数 find\_if 中会将第三个实参作为判断条件，这样就会调用第三个实参的 operator() 函数，也就是 bind1st 返回的实例中的 operator() 函数，前面已经说过了 bind1st 返回一个元函数对象的实例， 对于当前 bind1st 返回的实例其 operator() 有一个类型为 \_Eq\_traits<\_Traits>::second\_argument\_type(也是 \_Traits::char\_type 类型的) 的形参，operator() 函数体中会调用内部的 \_Eq\_traits<\_Traits> 类型的成员(由 bind1st 中的 \_Eq\_traits<\_Traits>() 初始化)的 operator() 函数，并将一元函数对象中的 operator() 函数中的实参和当前 \_Traits::char\_type 的成员(由 \_\_x 初始化) 作为参数，并返回返回值。
+
+<div class="cut"></div>
+
+将上面的叙述简化就是 bind1st 的返回对象中保存了一个 \_Eq\_traits<\_Traits> 的实例和 \_\_x 。find\_if 中会用一个给定值(\_M\_first 到 \_M\_last 之间的值) 作为实参调用返回对象的 operator() 函数，而返回对象的 operator() 函数又会用该给定值和 \_\_x 作为实参调用 \_Eq\_traits\_<\_Traits> 实例的二元 operator() 函数，该二元 operator 函数实现的功能就是判断两个实参是否相等，返回类型为 bool 类型。最后返回对象的 operator() 函数会将自身保持 \_Eq\_traits<\_Traits> 实例的二元 operator() 函数的返回值作为自身的返回值。
+
+	template <class _Traits
+	struct _Not_within_traits
+	  : public unary_function<typename _Traits::char_type, bool>
+	{
+	  typedef const typename _Traits::char_type* _Pointer;
+	  const _Pointer _M_first;
+	  const _Pointer _M_last;
+
+	  _Not_within_traits(_Pointer __f, _Pointer __l) 
+	    : _M_first(__f), _M_last(__l) {}
+
+	  bool operator()(const typename _Traits::char_type& __x) const {
+	    return find_if(_M_first, _M_last, 
+			   bind1st(_Eq_traits<_Traits>(), __x)) == _M_last;
+	  }
+	};
+
+<div class="cut"></div>
+####类模板 \_String\_alloc\_base####
+
+类模板 \_String\_alloc\_base 用来分配和回收内存空间。其内部定义了一个 allocator\_type 类型的实例 \_M\_data\_allocator。通过该实例的成员函数 allocate 和 deallocate 来分配和回收内存。同时内部还定义了三个成员变量 \_M\_start, \_M\_finish, \_M\_end\_of\_storage。分别表示内存的其实地址，已使用的截止地址和已分配的截止地址。
+
+
+构造函数中通过一个 allocate\_type 的实例初始化 \_M\_data\_allocator。并将 \_M\_start, \_M\_finish, \_M\_end\_of\_storage 初始化为空指针。函数 \_M\_allocate 调用 \_M\_data\_allocator 分配 \_\_n \* sizeof(\_Tp) 大小的空间，函数 \_M\_deallocate 调用 \_M\_data\_allocator 回收 \_\_n \* sizeof(\_Tp) 大小的空间。
+
+	template <class _Tp, class _Alloc, bool _S_instanceless>
+	class _String_alloc_base {
+	public:
+	  typedef typename _Alloc_traits<_Tp, _Alloc>::allocator_type allocator_type;
+	  allocator_type get_allocator() const { return _M_data_allocator; }
+
+	  _String_alloc_base(const allocator_type& __a)
+	    : _M_data_allocator(__a), _M_start(0), _M_finish(0), _M_end_of_storage(0)
+	    {}
+
+	protected:
+	  _Tp* _M_allocate(size_t __n)
+	    { return _M_data_allocator.allocate(__n); }
+	  void _M_deallocate(_Tp* __p, size_t __n) {
+	    if (__p)
+	      _M_data_allocator.deallocate(__p, __n); 
+	  }
+
+	protected:
+	  allocator_type _M_data_allocator;
+
+	  _Tp* _M_start;
+	  _Tp* _M_finish;
+	  _Tp* _M_end_of_storage;
+	};
+
+<div class="cut"></div>
+
+####\_String\_alloc\_base 的偏特化####
+
+\_String\_alloc\_base 有一个偏特化定义，当第三个模板形参 \_S\_instanceless 为 true 时，则使用 \_Alloc\_type 的静态成员函数进行内存的分配和回收，其中 \_S\_intanceless 为 true ，表明 \_Alloc 的实例之间没有任何的差别(即 \_Alloc 内部的成员都是静态成员)。\_Alloc\_type 为 \_Alloc\_traits\_<\_Tp, \_Alloc>::\_Alloc\_type 的类型别名。相比上一个定义而言，当前定义少了一个成员变量 \_M\_data\_allocator。\_M\_allocate 中调用 \_Alloc\_type 的静态成员函数 allocate 进行内存分配，\_M\_deallocate 调用 \_Alloc\_type 的静态成员函数 deallocate 进行内存回收。
+
+	template <class _Tp, class _Alloc>
+	class _String_alloc_base<_Tp,_Alloc,true> {
+	public:
+	  typedef typename _Alloc_traits<_Tp, _Alloc>::allocator_type allocator_type;
+	  allocator_type get_allocator() const { return allocator_type(); }
+
+	  _String_alloc_base(const allocator_type&)
+	    : _M_start(0), _M_finish(0), _M_end_of_storage(0) {}
+
+	protected:
+	  typedef typename _Alloc_traits<_Tp, _Alloc>::_Alloc_type _Alloc_type;
+	  _Tp* _M_allocate(size_t __n)
+	    { return _Alloc_type::allocate(__n); }
+	  void _M_deallocate(_Tp* __p, size_t __n)
+	    { _Alloc_type::deallocate(__p, __n); }
+
+	protected:
+	  _Tp* _M_start;
+	  _Tp* _M_finish;
+	  _Tp* _M_end_of_storage;
+	};
+
+<div class="cut"></div>
+
+####类模板 \_String\_base####
+
+类模板 \_String\_base 继承自 \_String\_alloc\_base<\_Tp, \_Alloc, \_Alloc\_traits<\_Tp, \_Alloc>::\_S\_intanceless> 类，实例化 \_String\_alloc\_base 的第三个模板实参 \_Alloc\_traits<\_Tp, \_Alloc>::\_S\_instanceless 根据 \_Alloc 类型的不同实例是否存在区别分别为 false 或 true。当为 true 是使用 \_String\_alloc\_base 的默认定义，否则使用偏特化的定义。
+
+	template <class _Tp, class _Alloc>
+	class _String_base 
+	  : public _String_alloc_base<_Tp, _Alloc,
+				      _Alloc_traits<_Tp, _Alloc>::_S_instanceless>
+	{
+
+<div class="cut"></div>
+
+\_String\_base 中的函数 \_M\_allocate\_block 用来分配 \_\_n 个 \_Tp 类型的元素所需的空间，已分配空间的首地址存储在 \_M\_start 中，结束地址存储在 \_M\_end\_of\_storage 中， \_M\_finish 初始时也处在首地址的位置，表示还没有任何内存被使用。如果拟分配的内存空间超出最大值则调用 \_M\_throw\_length\_error 抛出一个异常。
+
+	  void _M_allocate_block(size_t __n) { 
+	    if (__n <= max_size()) {
+	      _M_start  = _M_allocate(__n);
+	      _M_finish = _M_start;
+	      _M_end_of_storage = _M_start + __n;
+	    }
+	    else
+	      _M_throw_length_error();
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_deallocate 用来回收 \_M\_start 和 \_M\_end\_of\_storage 之间的内存。
+
+	  void _M_deallocate_block() 
+	    { _M_deallocate(_M_start, _M_end_of_storage - _M_start); }
+
+<div class="cut"></div>
+
+\_String\_base 有两个构造函数，第一个为空构造函数，第二个构造函数调用 \_M\_allocate\_block 函数分配 \_\_n 个 \_Tp 类型的元素所需的空间。
+
+	  _String_base(const allocator_type& __a) : _Base(__a) { }
+	  _String_base(const allocator_type& __a, size_t __n) : _Base(__a)
+	    { _M_allocate_block(__n); }
+
+
+<div class="cut"></div>
+
+####类模板 basic\_string####
+
+string 文件中 include 了 stl\_string\_fwd.h 文件，在 stl\_string\_fwd 中有如下声明。在这个声明中 basic\_string 有三个模板形参，地中第二个模板形参的缺省实参为 char\_traits<\_CharT>，第三个模板形参的缺省实参为 allocator<\_CharT> 。并且定义 string 为 basic\_string<char> 的类型别名，wstring 为 basic\_string<wchar\_t> 的类型别名。
+
+	template <class _CharT, 
+		  class _Traits = char_traits<_CharT>, 
+		  class _Alloc = __STL_DEFAULT_ALLOCATOR(_CharT) >
+	class basic_string;
+
+	typedef basic_string<char>    string;
+	typedef basic_string<wchar_t> wstring;
+
+<div class="cut"></div>
+
+类模板 basic\_string 私有继承自 \_String\_base ，因为 \_String\_base 中的成员都为公有属性或者是保护属性的，因此 \_String\_base 中的成员在 basic\_string 中都是私有属性的，只能被当前成员函数或者友元所访问。因为在之前的声明中已经指定了缺省形参，在实际的定义中不需要再指定。
+
+	template <class _CharT, class _Traits, class _Alloc> 
+	class basic_string : private _String_base<_CharT,_Alloc> {
+
+<div class="cut"></div>
+
+basic\_string 中定义了一系列的成员类型。
+
+	  typedef _CharT value_type;
+	  typedef _Traits traits_type;
+
+	  typedef value_type* pointer;
+	  typedef const value_type* const_pointer;
+	  typedef value_type& reference;
+	  typedef const value_type& const_reference;
+	  typedef size_t size_type;
+	  typedef ptrdiff_t difference_type;
+
+	  typedef const value_type*                const_iterator;
+	  typedef value_type*                      iterator;
+	  typedef _String_base<_CharT,_Alloc> _Base;
+	  
+<div class="cut"></div>
+
+basic\_string 中有一个类型为 const size\_type 的静态成员变量，size\_type 为无符号长整型，其值为 0xffffffff 。
+
+	  static const size_type npos;
+
+<div class="cut"></div>
+
+第一个构造函数为默认为 basic\_string 分配 8 个元素所需的空间，并调用 \_M\_terminate\_string() 在 \_M\_finish 的位置上设置结束标记(如果 \_Tp 为 char 则为 '\0')。
+
+	  explicit basic_string(const allocator_type& __a = allocator_type())
+	    : _Base(__a, 8) { _M_terminate_string(); }
+
+<div class="cut"></div>
+
+第二个构造函数为当前 basic\_string 分配 \_\_n + 1 个元素所需的空间(要为结束标记分配一个额外的空间)。并调用 \_M\_terminate\_string() 在 \_M\_finish 位置上设置结束标记。其中第一个形参 \_Reserve\_t 没有实际的意义。\_Reserve\_t 是一个空类。
+
+	  basic_string(_Reserve_t, size_t __n,
+		       const allocator_type& __a = allocator_type())
+	    : _Base(__a, __n + 1) { _M_terminate_string(); }
+
+<div class="cut"></div>
+
+第三个构造函数为拷贝构造函数，通过指定的 basic\_string \_\_s 来初始化当前 basic\_string。调用 \_M\_range\_initialize 来将 \_\_s 中的内容复制到当前 basic\_string 中。
+
+	  basic_string(const basic_string& __s) : _Base(__s.get_allocator()) 
+	    { _M_range_initialize(__s.begin(), __s.end()); }
+
+<div class="cut"></div>
+
+第四个构造函数将给定 basic\_string \_\_s 中从 \_\_pos 位置开始的 \_\_n 个元素复制到当前 basic\_string 中，\_\_n 的缺省实参为 npos 。
+
+	  basic_string(const basic_string& __s, size_type __pos, size_type __n = npos,
+		       const allocator_type& __a = allocator_type()) 
+	    : _Base(__a) {
+	    if (__pos > __s.size())
+	      _M_throw_out_of_range();
+	    else
+	      _M_range_initialize(__s.begin() + __pos,
+				  __s.begin() + __pos + min(__n, __s.size() - __pos));
+	  }
+
+<div class="cut"></div>
+
+第五个构造函数用从 \_\_s 开始的之后的 \_\_n 个元素来初始化当前 basic\_string。
+
+	  basic_string(const _CharT* __s, size_type __n,
+		       const allocator_type& __a = allocator_type()) 
+	    : _Base(__a) 
+	    { _M_range_initialize(__s, __s + __n); }
+
+<div class="cut"></div>
+
+第六个构造函数用从 \_\_s 开始到遇到结束标记位置的地址之间的元素来初始化当前 basic\_string 。
+
+	  basic_string(const _CharT* __s,
+		       const allocator_type& __a = allocator_type())
+	    : _Base(__a) 
+	    { _M_range_initialize(__s, __s + _Traits::length(__s)); }
+
+<div class="cut"></div>
+
+第七个构造函数用 \_\_n 个值为 \_\_c 的元素来初始化当前 basic\_string 。基类的构造函数中先分配 \_\_n + 1 个元素所需的空间，调用 uninitialized\_fill\_n 来将 \_\_n 个值为 \_\_c 的元素填充到当前 basic\_string 中，并调用 \_M\_terminate\_string 在 \_M\_finish 所在的结束位置上设置结束标记。
+
+	  basic_string(size_type __n, _CharT __c,
+		       const allocator_type& __a = allocator_type())
+	    : _Base(__a, __n + 1)
+	  {
+	    _M_finish = uninitialized_fill_n(_M_start, __n, __c);
+	    _M_terminate_string();
+	  }
+
+<div class="cut"></div>
+
+第八个构造函数会根据 \_\_f 的类型调用 \_M\_initialize\_dispatch 的两种定义。当 \_InputIterator 类型为整型变量时，\_Is\_Integer<\_InputIterator>::Integral 为 \_\_true\_type，否则 \_Is\_Integer<\_InputIterator>::Integral 为 \_\_false\_type 类型。
+
+	  template <class _InputIterator>
+	  basic_string(_InputIterator __f, _InputIterator __l,
+		       const allocator_type& __a = allocator_type())
+	    : _Base(__a)
+	  {
+	    typedef typename _Is_integer<_InputIterator>::_Integral _Integral;
+	    _M_initialize_dispatch(__f, __l, _Integral());
+	  }
+	  
+<div class="cut"></div>
+
+\_M\_initialize\_dispatch 将 \_\_n 个值为 \_\_x 的元素填充到当前 basic\_string 中。第三个形参的类型用来限定 \_Integer 是整型类型。
+
+	  template <class _Integer>
+	  void _M_initialize_dispatch(_Integer __n, _Integer __x, __true_type) {
+	    _M_allocate_block(__n + 1);
+	    _M_finish = uninitialized_fill_n(_M_start, __n, __x);
+	    _M_terminate_string();
+	  }
+
+<div class="cut"></div>
+
+函数 \_M\_initialize\_dispatch 将从 \_\_first 到 \_\_last 之间的元素复制到当前 basic\_string 中。
+
+	  template <class _InputIter>
+	  void _M_initialize_dispatch(_InputIter __f, _InputIter __l, __false_type) {
+	     _M_range_initialize(__f, __l);
+	  }
+
+<div class="cut"></div>
+
+析构函数用来销毁从 \_M\_first 到 \_M\_finish 之间的元素。空间的释放有基类的析构函数来做。
+
+	  ~basic_string() { destroy(_M_start, _M_finish + 1); }
+
+<div class="cut"></div>
+
+函数 operator= 用来将给定 basic\_string 中的内容赋值给当前 basic\_string 。调用 assign 函数来实现。
+
+	  basic_string& operator=(const basic_string& __s) {
+	    if (&__s != this) 
+	      assign(__s.begin(), __s.end());
+	    return *this;
+	  }
+
+<div class="cut"></div>
+
+函数 operator= 将从 \_\_s 开始直到遇到结束标记的位置之间的元素赋值给当前 basic\_string 。也是通过调用 assign 函数来实现。
+
+	  basic_string& operator=(const _CharT* __s) 
+	    { return assign(__s, __s + _Traits::length(__s)); }
+
+<div class="cut"></div>
+
+函数 operator= 将给定字符赋值给当前 basic\_string 。
+
+	  basic_string& operator=(_CharT __c)
+	    { return assign(static_cast<size_type>(1), __c); }
+
+<div class="cut"></div>
+
+[STL 的 string 分析（一）](../02/string1.html)</br>
+[STL 的 string 分析（二）](../02/string2.html)</br>
+[STL 的 string 分析（三）](../02/string3.html)</br>
+[STL 的 string 分析（四）](../02/string4.html)</br>
+[STL 的 string 分析（五）](../02/string5.html)</br>
+[STL 的 string 分析（六）](../02/string6.html)</br>
