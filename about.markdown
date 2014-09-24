@@ -23,9 +23,7 @@ document.write(email);
 </script>
 </p></blockquote>
 
-weibo 
 
-> [@吴建涛wu](http://weibo.com/u/1977313820)
 
 ---
 to contact me
