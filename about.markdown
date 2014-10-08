@@ -7,9 +7,7 @@ about me
 
 > Student | Coder| Linuxer 
 
-github 
 
-> [github](https://github.com/wujiantao)
 
 mail 
 <blockquote><p>

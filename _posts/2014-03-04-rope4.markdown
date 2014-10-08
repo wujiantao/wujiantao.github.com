@@ -362,10 +362,10 @@ operator\*() 返回当前迭代器的索引(这里没有直接返回值，而是
 
 <div class="cut"></div>
 
-[STL 的 rope 分析（一）](../27/rope1.html)</br>
-[STL 的 rope 分析（二）](../27/rope2.html)</br>
-[STL 的 rope 分析（三）](../27/rope3.html)</br>
-[STL 的 rope 分析（四）](../27/rope4.html)</br>
-[STL 的 rope 分析（五）](../27/rope5.html)</br>
-[STL 的 rope 分析（六）](../27/rope6.html)</br>
-[STL 的 rope 分析（七）](../27/rope7.html)</br>
+[STL 的 rope 分析（一）](../04/rope1.html)</br>
+[STL 的 rope 分析（二）](../04/rope2.html)</br>
+[STL 的 rope 分析（三）](../04/rope3.html)</br>
+[STL 的 rope 分析（四）](../04/rope4.html)</br>
+[STL 的 rope 分析（五）](../04/rope5.html)</br>
+[STL 的 rope 分析（六）](../04/rope6.html)</br>
+[STL 的 rope 分析（七）](../04/rope7.html)</br>
