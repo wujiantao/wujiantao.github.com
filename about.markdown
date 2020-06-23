@@ -5,7 +5,7 @@ layout: page
 
 about me
 
-> Student | Coder| Linuxer 
+> Student| Coder| Linuxer 
 
 
 
